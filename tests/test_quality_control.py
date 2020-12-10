@@ -1,34 +1,34 @@
 import pytest
+import os
+import shutil
+from pathlib import Path
+"""
+~~~ PYTEST FIXTURES ~~~
+"""
 
+@pytest.fixture()
+def epw_path():
+    from pathlib import Path
+    yield Path("datafiles/epw_files/CAN_QC_Montreal-McTavish.716120_CWEC2016.epw")
 
-class TestsQualityAssurance:
+@pytest.fixture()
+def config():
+    import shutil
+    if os.path.isdir(Path("datafiles/raw_tbl")):
+        shutil.rmtree(Path("datafiles/raw_tbl"))
+    Path("datafiles/raw_tbl").mkdir()
+
+class TestsQualityControl:
     """A class that encapsulates the different tests for the functions found in
-    the sensitivity_analysis.py module
+    the quality_control.py module
     """
-
-    """
-    ~~~ PYTEST FIXTURES ~~~
-    """
-
-    @pytest.fixture()
-    def epw_path(self):
-        from pathlib import Path
-        yield Path("datafiles/epw_files/CAN_QC_Montreal-McTavish.716120_CWEC2016.epw")
 
     """
     ~~~ FUNCTION TESTS ~~~
     """
 
-    def test_run_quality_assurance(self, capsys, epw_path):
+    def test_run_quality_control(self, config, capsys, epw_path):
 
         with capsys.disabled():
-            from qcweather import run_quality_assurance
-            run_quality_assurance(epw_path)
-
-    def test_do_multi_lin_reg(self, capsys, a):
-        with capsys.disabled():
-            from qcweather import y
-
-    def test_write_csv_table(self, a):
-        with capsys.disabled():
-            from qcweather import z
+            from qcweather import run_quality_control
+            run_quality_control(epw_path)

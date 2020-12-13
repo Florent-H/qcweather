@@ -15,6 +15,9 @@ import epw
 from collections import OrderedDict
 import xlrd
 import matplotlib.pyplot as plt
+from matplotlib import gridspec
+from matplotlib.ticker import MultipleLocator
+from scipy.stats import norm
 
 
 class Weather(object):
@@ -432,7 +435,7 @@ class Weather(object):
 
         if self.meteo_vars["dew_point"][time] > perc_99th:
             self.meteo_vars["hourly_flags"][time].append(
-                "dry bulb temperature is in the upper 99th percentile"
+                "dew point is in the upper 99th percentile"
             )
 
     def rh_hour_check(self, time):
@@ -823,7 +826,7 @@ class Weather(object):
                 time_list[0].day,
             )
             midnight_idx = self.meteo_vars.index.get_loc(midnight)
-            day_slice = slice(midnight_idx, midnight_idx + 24, 1)
+            day_slice = slice(midnight_idx, midnight_idx + 25, 1)
             daily_profile = self.meteo_vars[meteo_var][day_slice]
 
             pdf_name = meteo_var + "_pdf"
@@ -843,44 +846,231 @@ class Weather(object):
 
             bins = self.historical[pdf_name]["bin"][month]
             pdf = self.historical[pdf_name]["pdf"][month]
-            fig = plt.figure(figsize=(6.5, 4))
+            fig = plt.figure(figsize=(6.5, 2.5))
             ax1 = fig.add_subplot(111)
             ax2 = ax1.twinx()
+            ax1.grid(alpha=0.2)
             plt.rcParams["font.family"] = "Times New Roman"
             csfont = {"fontname": "Times New Roman"}
             fontsz = {"fontsize": 11}
+
             ax1.hist(bins, bins=len(bins), weights=pdf, color="gray")
-            ax2.plot(daily_profile, range(24), color="blue")
+            ax2.plot(daily_profile, range(25), color="blue")
             ax1.set_ylabel("Probability", **csfont, **fontsz)
             ax2.set_ylabel("Hour of the day", **csfont, **fontsz, color="blue")
             ax1.set_xlabel("Dewpoint temperature [°C]", **csfont, **fontsz)
-            ax1.set_xticks(np.arange(-35, 15, 5).astype(int))
-            ax1.set_yticks(np.arange(0, 0.035, 0.005))
-            ax2.set_yticks(np.arange(0, 26, 2).astype(int))
-            ax1.set_ylim([0, 0.035])
+
+            ax1.set_xticks(np.arange(-35, 20, 5).astype(int))
+            ax1.set_xlim([-35, 15])
+            ax1.set_yticks(np.arange(0, 0.036, 0.004))
+            ax2.set_yticks(np.arange(0, 27, 3).astype(int))
+            ax1.set_ylim([0, 0.032])
             ax2.set_ylim([0, 24])
+
             ax1.set_xticklabels(ax1.get_xticks(), **csfont, **fontsz)
             ax1.set_yticklabels(ax1.get_yticks(), **csfont, **fontsz)
             ax2.set_yticklabels(ax2.get_yticks(), color="blue", **csfont, **fontsz)
             plt.vlines(perc_1st, 0, 24, colors="red")
             plt.vlines(perc_99th, 0, 24, colors="red")
-            # plt.xlim()
-            # for x, y in zip(years, pue):
-            #     label = "{:.2f}".format(y)
-            #
-            #     plt.annotate(
-            #         label,  # this is the text
-            #         (x, y),  # this is the point to label
-            #         textcoords="offset points",  # how to position the text
-            #         xytext=(0, 7),  # distance from text to points (x,y)
-            #         ha="center",  # horizontal alignment can be left, right or center
-            #         **csfont,
-            #         **fontsz,
-            #     )
-            # ax.set_aspect('equal')
-            plt.tight_layout(pad=0.05)
-            plt.savefig(Path("datafiles/figures/dew_point.png"), dpi=300)
 
+            if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
+                plt.title("Typical Meteorological Year", fontweight="bold", **csfont, **fontsz)
+
+            if self.file_path.stem == "tampered":
+                plt.title("Tampered Year", fontweight="bold", **csfont, **fontsz)
+
+            plt.tight_layout(pad=0.05)
+            plt.savefig(Path(f"datafiles/figures/dew_point_{self.file_path.stem}.png"), dpi=300)
+
+        elif check == "daily":
+
+            value_list = []
+            time_list = []
+
+            # get flagged values for the meteorological variable
+            for time, value in self.meteo_vars[meteo_var].iteritems():
+                for flag in self.meteo_vars["daily_flags"][time]:
+                    if re.match(r".*profile", flag) and time.month == month + 1:
+                        value_list.append(value)
+                        time_list.append(time)
+
+            # create a day slice of the indices to get the daily profile of the meteorological variable
+            midnight = datetime.datetime(
+                time_list[0].year,
+                time_list[0].month,
+                time_list[0].day,
+            )
+            midnight_idx = self.meteo_vars.index.get_loc(midnight)
+            day_slice = slice(midnight_idx, midnight_idx + 25, 1)
+            daily_profile = self.meteo_vars[meteo_var][day_slice]
+
+            pdf_name = meteo_var + "_time_pdf"
+
+            plt.figure(figsize=(6.5, 8.5))
+            gs1 = gridspec.GridSpec(24, 1)
+            gs1.update(wspace=0, hspace=0)  # set the spacing between axes.
+            plt.rcParams["font.family"] = "Times New Roman"
+            csfont = {"fontname": "Times New Roman"}
+            fontsz = {"fontsize": 11}
+
+            # make a subplot of the histogram for each hour of the month
+            for hour in range(24):
+                # get 1st percentile and 99th percentile values
+                perc_1st_idx = min(
+                    range(len(self.historical[pdf_name]["cdf"][month][hour])),
+                    key=lambda i: abs(self.historical[pdf_name]["cdf"][month][hour][i] - 0.01),
+                )
+                perc_1st = self.historical[pdf_name]["bin"][month][hour][perc_1st_idx]
+
+                perc_99th_idx = min(
+                    range(len(self.historical[pdf_name]["cdf"][month][hour])),
+                    key=lambda i: abs(self.historical[pdf_name]["cdf"][month][hour][i] - 0.99),
+                )
+                perc_99th = self.historical[pdf_name]["bin"][month][hour][perc_99th_idx]
+
+                bins = self.historical[pdf_name]["bin"][month][hour]
+                pdf = self.historical[pdf_name]["pdf"][month][hour]
+
+                plt.axis('on')
+                ax1 = plt.subplot(gs1[23 - hour])
+                ax2 = ax1.twinx()
+                ax1.xaxis.grid(True, alpha=0.2)
+                ax1.hist(bins, bins=len(bins), weights=pdf, color="gray")
+                ax2.plot(daily_profile[hour:hour + 2], np.arange(hour, hour + 2, 1), color="blue")
+                if hour == 12:
+                    ax1.set_ylabel("Probability", **csfont, **fontsz)
+                    ax2.set_ylabel("Hour of the day", **csfont, **fontsz, color="blue")
+                else:
+                    for tic in ax1.yaxis.get_major_ticks():
+                        tic.tick1line.set_visible(False)
+                        tic.tick2line.set_visible(False)
+                        tic.label1.set_visible(False)
+                        tic.label2.set_visible(False)
+
+                ax1.set_xticks(np.arange(4, 36, 2).astype(int))
+                ax1.set_xlim([4, 34])
+                ax1.set_yticks([0, 0.04, 0.08])
+                ax1.set_ylim([0, 0.08])
+
+                ax2.set_ylim([hour, hour + 1])
+                ax2.set_yticklabels(ax2.get_yticks(), color="blue", **csfont, **fontsz)
+
+                if hour == 0:
+                    ax1.set_xlabel("Dry bulb temperature [°C]", **csfont, **fontsz)
+                    ax1.set_xticklabels(ax1.get_xticks(), **csfont, **fontsz)
+                    ax2.set_yticks([hour])
+                else:
+                    for tic in ax1.xaxis.get_major_ticks():
+                        tic.tick1line.set_visible(False)
+                        tic.tick2line.set_visible(False)
+                        tic.label1.set_visible(False)
+                        tic.label2.set_visible(False)
+
+                    ax2.set_yticks([hour, hour + 1])
+
+                ax2.vlines(perc_1st, hour, hour + 1, colors="red")
+                ax2.vlines(perc_99th, hour, hour + 1, colors="red")
+
+            if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
+                plt.title("Typical Meteorological Year", fontweight="bold", **csfont, **fontsz)
+
+            if self.file_path.stem == "tampered":
+                plt.title("Tampered Year", fontweight="bold", **csfont, **fontsz)
+
+            plt.tight_layout(pad=0.05)
+            plt.savefig(Path(f"datafiles/figures/dry_bulb_profile_{self.file_path.stem}.png"), dpi=300)
+
+        elif check == "monthly":
+
+            plt.figure(figsize=(6.5, 4.25))
+            gs1 = gridspec.GridSpec(12, 1)
+            gs1.update(wspace=0, hspace=0)  # set the spacing between axes.
+            plt.rcParams["font.family"] = "Times New Roman"
+            plt.rcParams['mathtext.fontset'] = 'cm'
+
+            csfont = {"fontname": "Times New Roman"}
+            fontsz = {"fontsize": 11}
+
+            past_days = 0
+
+            for month in range(12):
+                mu = self.historical["all_sky_glob_avg"][month]
+                sigma = self.historical["all_sky_glob_std"][month]
+
+                perc_1st = mu - 2.32635 * sigma
+                perc_99th = mu + 2.32635 * sigma
+
+                z1 = mu - 3 * sigma
+                z2 = mu + 3 * sigma
+
+                x = np.arange(z1, z2, 0.001)
+                y = norm.pdf(x, mu, sigma)
+
+                # get all indices
+                days_in_month = calendar.monthrange(self.meteo_vars.index[0].year, month + 1)[1]
+                days_sum = []
+                for day in range(past_days, past_days + days_in_month, 1):
+                    day_slice = slice(day*24, (day + 1) * 24, 1)
+                    days_sum.append(sum(self.meteo_vars["glob_hor_rad"][day_slice]))
+                past_days += days_in_month
+
+                month_average = np.mean(days_sum) / 1000
+
+                plt.axis('on')
+                ax1 = plt.subplot(gs1[11 - month])
+                ax2 = ax1.twinx()
+                ax1.xaxis.grid(True, alpha=0.2, which="both")
+                ax1.barh(0, month_average, align="center", color="blue")
+                ax2.plot(x, y, color="gray")
+
+                if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
+                    ax1.set_xticks(np.arange(0, 7.5, 0.5))
+                    ax1.set_xlim([0, 7])
+
+                if self.file_path.stem == "CAN-QC - Montreal YUL 716270 - ISD 2015":
+                    ax1.set_xticks(np.arange(0, 8, 0.5))
+                    ax1.set_xlim([0, 7.5])
+                ml = MultipleLocator(0.25)
+                ax1.xaxis.set_minor_locator(ml)
+
+                ax1.set_yticks([-1, 0, 1])
+                ax1.set_yticklabels(['', calendar.month_name[month + 1], ''], color="blue", **csfont, **fontsz)
+                for i, tic in enumerate(ax1.yaxis.get_major_ticks()):
+                    if i != 1:
+                        tic.label1.set_visible(False)
+                        tic.label2.set_visible(False)
+                    tic.tick1line.set_visible(False)
+                    tic.tick2line.set_visible(False)
+
+                if month == 0:
+                    ax1.set_xlabel(r"Monthly average global horizontal irradiation [kWh/$\rm m^2$]", **csfont, **fontsz)
+                    ax1.set_xticklabels(ax1.get_xticks(), **csfont, **fontsz)
+
+                else:
+                    for tic in ax1.xaxis.get_major_ticks():
+                        tic.tick1line.set_visible(False)
+                        tic.tick2line.set_visible(False)
+                        tic.label1.set_visible(False)
+                        tic.label2.set_visible(False)
+                    for tic in ax1.xaxis.get_minor_ticks():
+                        tic.tick1line.set_visible(False)
+                        tic.tick2line.set_visible(False)
+                        tic.label1.set_visible(False)
+                        tic.label2.set_visible(False)
+
+                ax2.get_yaxis().set_visible(False)
+
+                ax2.vlines(perc_1st, 0, max(y), colors="red")
+                ax2.vlines(perc_99th, 0, max(y), colors="red")
+
+            if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
+                plt.title("Typical Meteorological Year", fontweight="bold", **csfont, **fontsz)
+
+            if self.file_path.stem == "CAN-QC - Montreal YUL 716270 - ISD 2015":
+                plt.title("2015", fontweight="bold", **csfont, **fontsz)
+
+            plt.tight_layout(pad=0.05)
+            plt.savefig(Path(f"datafiles/figures/glob_rad_months_{self.file_path.stem}.png"), dpi=300)
 
 def get_pdf(weather, meteo_var):
 
@@ -1010,7 +1200,7 @@ def get_pdf(weather, meteo_var):
 def get_month_data(excel_sheet, wmo, var_type):
 
     # find the corresponding row of data for the weather station
-    wmo_col = excel_sheet.col_values(4)[2:]
+    wmo_col = excel_sheet.col_values(4)[4:]
     row = wmo_col.index(str(wmo))
 
     # read the values from the corresponding columns in the row of the weather station

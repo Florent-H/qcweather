@@ -20,8 +20,9 @@ def run_quality_control(file_path):
     # run quality assurance on the monthly magnitudes of the meteorological variables
     weather.month_qc()
 
-    weather.get_graph("hourly", "dew_point", month=2)
-    # weather.get_graph("daily", "dry_bulb", month=6)
+    # weather.get_graph("hourly", "dew_point", month=2)
+    weather.get_graph("daily", "dry_bulb", month=5)
+    weather.get_graph("monthly", "glob_hor_rad")
 
     csv_path = Path(f"datafiles/results/{weather.file_path.stem}_results.csv")
     weather.meteo_vars.to_csv(csv_path)

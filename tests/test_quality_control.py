@@ -9,7 +9,8 @@ from pathlib import Path
 @pytest.fixture()
 def epw_path():
     from pathlib import Path
-    yield Path("datafiles/epw_files/CAN_QC_Montreal-McTavish.716120_CWEC2016.epw")
+    # CAN-QC - Montreal YUL 716270 - ISD 2015
+    yield Path("datafiles/epw_files/CAN-QC - Montreal YUL 716270 - ISD 2015.epw")
 
 @pytest.fixture()
 def config():

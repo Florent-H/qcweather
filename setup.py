@@ -1,7 +1,7 @@
 import setuptools
 
-with open("README.md", "r") as fh:
-    long_description = fh.read()
+# with open("README.md", "r") as fh:
+#     long_description = fh.read()
 
 setuptools.setup(
     name="qcweather_Florent-H",
@@ -9,7 +9,7 @@ setuptools.setup(
     author="Florent Herbinger",
     author_email="florent.herbinger@outlook.com",
     description="A python package to automatically control the quality of yearly weather files",
-    long_description=long_description,
+    long_description="long_description",
     long_description_content_type="text/markdown",
     url="https://github.com/Florent-H/qcweather",
     packages=setuptools.find_packages(),

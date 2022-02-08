@@ -11,7 +11,7 @@ import matplotlib as plt
 import calendar
 import datetime
 from pathlib import Path
-import epw
+# import epw
 from collections import OrderedDict
 import xlrd
 import matplotlib.pyplot as plt
@@ -846,18 +846,18 @@ class Weather(object):
 
             bins = self.historical[pdf_name]["bin"][month]
             pdf = self.historical[pdf_name]["pdf"][month]
-            fig = plt.figure(figsize=(6.5, 2.5))
+            fig = plt.figure(figsize=(3.3, 2.1))
             ax1 = fig.add_subplot(111)
             ax2 = ax1.twinx()
             ax1.grid(alpha=0.2)
             plt.rcParams["font.family"] = "Times New Roman"
             csfont = {"fontname": "Times New Roman"}
-            fontsz = {"fontsize": 11}
+            fontsz = {"fontsize": 10}
 
             ax1.hist(bins, bins=len(bins), weights=pdf, color="gray")
             ax2.plot(daily_profile, range(25), color="blue")
             ax1.set_ylabel("Probability", **csfont, **fontsz)
-            ax2.set_ylabel("Hour of the day", **csfont, **fontsz, color="blue")
+            ax2.set_ylabel("Hour of the day", color="blue", **csfont, **fontsz)
             ax1.set_xlabel("Dewpoint temperature [°C]", **csfont, **fontsz)
 
             ax1.set_xticks(np.arange(-35, 20, 5).astype(int))
@@ -880,7 +880,7 @@ class Weather(object):
                 plt.title("Tampered Year", fontweight="bold", **csfont, **fontsz)
 
             plt.tight_layout(pad=0.05)
-            plt.savefig(Path(f"datafiles/figures/dew_point_{self.file_path.stem}.png"), dpi=300)
+            plt.savefig(Path(f"datafiles/figures/dew_point_{self.file_path.stem}.svg"))
 
         elif check == "daily":
 
@@ -906,12 +906,12 @@ class Weather(object):
 
             pdf_name = meteo_var + "_time_pdf"
 
-            plt.figure(figsize=(6.5, 8.5))
+            plt.figure(figsize=(3.3, 5))
             gs1 = gridspec.GridSpec(24, 1)
             gs1.update(wspace=0, hspace=0)  # set the spacing between axes.
             plt.rcParams["font.family"] = "Times New Roman"
             csfont = {"fontname": "Times New Roman"}
-            fontsz = {"fontsize": 11}
+            fontsz = {"fontsize": 10}
 
             # make a subplot of the histogram for each hour of the month
             for hour in range(24):
@@ -947,26 +947,34 @@ class Weather(object):
                         tic.label1.set_visible(False)
                         tic.label2.set_visible(False)
 
-                ax1.set_xticks(np.arange(4, 36, 2).astype(int))
-                ax1.set_xlim([4, 34])
+                ax1.set_xticks(np.arange(4, 40, 4).astype(int))
+                ax1.set_xlim([4, 36])
                 ax1.set_yticks([0, 0.04, 0.08])
+                ax1.set_yticklabels(["0", "", "0.08"], **csfont, **fontsz)
                 ax1.set_ylim([0, 0.08])
+                ml = MultipleLocator(2)
+                ax1.xaxis.set_minor_locator(ml)
 
                 ax2.set_ylim([hour, hour + 1])
-                ax2.set_yticklabels(ax2.get_yticks(), color="blue", **csfont, **fontsz)
+                ax2.set_yticklabels([f"{int(y)}" for y in ax2.get_yticks()], color="blue", **csfont, **fontsz)
 
                 if hour == 0:
                     ax1.set_xlabel("Dry bulb temperature [°C]", **csfont, **fontsz)
                     ax1.set_xticklabels(ax1.get_xticks(), **csfont, **fontsz)
-                    ax2.set_yticks([hour])
+                    ax2.set_yticks([int(hour)])
                 else:
                     for tic in ax1.xaxis.get_major_ticks():
                         tic.tick1line.set_visible(False)
                         tic.tick2line.set_visible(False)
                         tic.label1.set_visible(False)
                         tic.label2.set_visible(False)
+                    for tic in ax1.xaxis.get_minor_ticks():
+                        tic.tick1line.set_visible(False)
+                        tic.tick2line.set_visible(False)
+                        # tic.label1.set_visible(False)
+                        # tic.label2.set_visible(False)
 
-                    ax2.set_yticks([hour, hour + 1])
+                    ax2.set_yticks([int(hour), int(hour + 1)])
 
                 ax2.vlines(perc_1st, hour, hour + 1, colors="red")
                 ax2.vlines(perc_99th, hour, hour + 1, colors="red")
@@ -978,22 +986,22 @@ class Weather(object):
                 plt.title("Tampered Year", fontweight="bold", **csfont, **fontsz)
 
             plt.tight_layout(pad=0.05)
-            plt.savefig(Path(f"datafiles/figures/dry_bulb_profile_{self.file_path.stem}.png"), dpi=300)
+            plt.savefig(Path(f"datafiles/figures/dry_bulb_profile_{self.file_path.stem}.svg"))
 
         elif check == "monthly":
 
-            plt.figure(figsize=(6.5, 4.25))
+            plt.figure(figsize=(3.3, 4))
             gs1 = gridspec.GridSpec(12, 1)
             gs1.update(wspace=0, hspace=0)  # set the spacing between axes.
             plt.rcParams["font.family"] = "Times New Roman"
             plt.rcParams['mathtext.fontset'] = 'cm'
 
             csfont = {"fontname": "Times New Roman"}
-            fontsz = {"fontsize": 11}
+            fontsz = {"fontsize": 10}
 
-            past_days = 0
+            past_days = 364
 
-            for month in range(12):
+            for month in range(11, -1, -1):
                 mu = self.historical["all_sky_glob_avg"][month]
                 sigma = self.historical["all_sky_glob_std"][month]
 
@@ -1009,28 +1017,28 @@ class Weather(object):
                 # get all indices
                 days_in_month = calendar.monthrange(self.meteo_vars.index[0].year, month + 1)[1]
                 days_sum = []
-                for day in range(past_days, past_days + days_in_month, 1):
+                for day in range(past_days, past_days - days_in_month, -1):
                     day_slice = slice(day*24, (day + 1) * 24, 1)
                     days_sum.append(sum(self.meteo_vars["glob_hor_rad"][day_slice]))
-                past_days += days_in_month
+                past_days -= days_in_month
 
                 month_average = np.mean(days_sum) / 1000
 
                 plt.axis('on')
-                ax1 = plt.subplot(gs1[11 - month])
+                ax1 = plt.subplot(gs1[month])
                 ax2 = ax1.twinx()
                 ax1.xaxis.grid(True, alpha=0.2, which="both")
                 ax1.barh(0, month_average, align="center", color="blue")
                 ax2.plot(x, y, color="gray")
 
                 if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
-                    ax1.set_xticks(np.arange(0, 7.5, 0.5))
+                    ax1.set_xticks(range(8))
                     ax1.set_xlim([0, 7])
 
                 if self.file_path.stem == "CAN-QC - Montreal YUL 716270 - ISD 2015":
-                    ax1.set_xticks(np.arange(0, 8, 0.5))
-                    ax1.set_xlim([0, 7.5])
-                ml = MultipleLocator(0.25)
+                    ax1.set_xticks(range(9))
+                    ax1.set_xlim([0, 8])
+                ml = MultipleLocator(0.5)
                 ax1.xaxis.set_minor_locator(ml)
 
                 ax1.set_yticks([-1, 0, 1])
@@ -1042,8 +1050,8 @@ class Weather(object):
                     tic.tick1line.set_visible(False)
                     tic.tick2line.set_visible(False)
 
-                if month == 0:
-                    ax1.set_xlabel(r"Monthly average global horizontal irradiation [kWh/$\rm m^2$]", **csfont, **fontsz)
+                if month == 11:
+                    ax1.set_xlabel(r"Monthly average" "\n" r"global horizontal irradiation [kWh/$\rm m^2$]", **csfont, **fontsz)
                     ax1.set_xticklabels(ax1.get_xticks(), **csfont, **fontsz)
 
                 else:
@@ -1070,7 +1078,8 @@ class Weather(object):
                 plt.title("2015", fontweight="bold", **csfont, **fontsz)
 
             plt.tight_layout(pad=0.05)
-            plt.savefig(Path(f"datafiles/figures/glob_rad_months_{self.file_path.stem}.png"), dpi=300)
+            plt.savefig(Path(f"datafiles/figures/glob_rad_months_{self.file_path.stem}.svg"))
+
 
 def get_pdf(weather, meteo_var):
 

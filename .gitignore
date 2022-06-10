@@ -109,6 +109,7 @@ venv.bak/
 # flore.xml
 # other.xml
 *.xml
+*.iml
 
 # dropbox
 desktop.ini

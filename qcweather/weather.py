@@ -11,6 +11,7 @@ import matplotlib as plt
 import calendar
 import datetime
 from pathlib import Path
+
 # import epw
 from collections import OrderedDict
 import xlrd
@@ -37,104 +38,12 @@ class Weather(object):
         # instantiate Weather object
         weather = cls(file_path)
 
-        # if the weather file is an energy plus weather file
-        if file_path.suffix == ".epw":
-            # open energy plus weather file
-            with open(file_path, "r") as fp:
-                reader = csv.reader(fp)
-                data = list(reader)
-
-        # for the first line of code, record the World Meteorological Organization station number and create
-        # the folder for the raw historical weather data
-        for line in data:
-            if re.match(r"(?i)location", line[0]):
-                weather.wmo = int(line[5])
-                weather.folder = Path(f"datafiles/raw_tbl/{weather.wmo}")
-                os.mkdir(weather.folder)
-                # (latitude, longitude) in degrees
-                # using convention that to the west is positive
-                weather.location = (
-                    math.radians(float(line[6])),
-                    math.radians(-float(line[7])),
-                )
-                weather.time_zone = -float(line[8])
-
-            # if the line starts with 4 digits (the year), then we have passed through the header and can start
-            # recording the values of the meteorological variables to the class's meteo_vars attribute
-            elif re.match(r"\d{4}", line[0]):
-
-                if weather.meteo_vars is None:
-                    # get number of hours in the year as it could be a leap year (i.e. 8760 vs 8784 hours)
-                    hours = len(data) - 8
-                    first_date = datetime.datetime(
-                        int(line[0]), int(line[1]), int(line[2]), int(line[3])
-                    )
-
-                    weather.meteo_vars = pd.DataFrame(
-                        OrderedDict(
-                            (
-                                ("dry_bulb", np.empty(hours)),
-                                ("dew_point", np.empty(hours)),
-                                ("rel_hum", np.empty(hours)),
-                                ("pressure", np.empty(hours)),
-                                ("ext_hor_rad", np.empty(hours)),
-                                ("ext_dir_norm", np.empty(hours)),
-                                ("hor_inf_rad_int", np.empty(hours)),
-                                ("glob_hor_rad", np.empty(hours)),
-                                ("dir_norm_rad", np.empty(hours)),
-                                ("diff_hor_rad", np.empty(hours)),
-                                ("glob_hor_ill", np.empty(hours)),
-                                ("dir_norm_ill", np.empty(hours)),
-                                ("diff_hor_ill", np.empty(hours)),
-                                ("zen_lum", np.empty(hours)),
-                                ("wind_dir", np.empty(hours)),
-                                ("wind_speed", np.empty(hours)),
-                                ("tot_sky_cov", np.empty(hours)),
-                                ("op_sky_cov", np.empty(hours)),
-                                ("visibility", np.empty(hours)),
-                                ("ceil_height", np.empty(hours)),
-                                ("pres_wth_obs", np.empty(hours)),
-                                ("pres_wth_cod", np.empty(hours)),
-                                ("prec_water", np.empty(hours)),
-                                ("aero_opt_dep", np.empty(hours)),
-                                ("snow_depth", np.empty(hours)),
-                                ("days_lst_snow", np.empty(hours)),
-                                ("albedo", np.empty(hours)),
-                                ("liq_prec_dep", np.empty(hours)),
-                                ("liq_prec_qty", np.empty(hours)),
-                                ("hourly_flags", [[] for i in range(hours)]),
-                                ("step_flags", [[] for i in range(hours)]),
-                                ("daily_flags", [[] for i in range(hours)]),
-                                ("monthly_flags", [[] for i in range(hours)]),
-                            )
-                        ),
-                        index=pd.date_range(first_date, periods=hours, freq="H"),
-                    )
-                    # keep track of the hour number
-                    hour = 0
-
-                # if the meteorological variable dataframe has been created
-                if isinstance(weather.meteo_vars, pd.DataFrame):
-                    # write the hour's data to the corresponding columns
-                    for j, (col, arr) in enumerate(weather.meteo_vars.iteritems()):
-                        if col not in (
-                            "hourly_flags",
-                            "step_flags",
-                            "daily_flags",
-                            "monthly_flags",
-                        ):
-                            # missing value
-                            if line[j + 6] == "9999":
-                                weather.meteo_vars["hourly_flags"][hour].append(
-                                    "missing value"
-                                )
-                                weather.meteo_vars[col][hour] = None
-
-                            weather.meteo_vars[col][hour] = float(line[j + 6])
-                    hour += 1
+        # get meteorological parameters (such as longitude and latitude of weather station, dry bulb temperature,
+        # and wind speed)
+        weather.get_meteo_params(file_path)
 
         # get solar angles
-        weather.solar_angles = get_solar_angles(weather)
+        weather.get_solar_angles()
 
         # gather historical data for the meteorological variables
 
@@ -146,7 +55,6 @@ class Weather(object):
             + " ALL 99 SI"
         )
         subprocess.run(run_string, cwd=Path.cwd(), capture_output=True)
-
         # get monthly CDFs
         db_pdf = get_pdf(weather, "dry_bulb")
         dp_pdf = get_pdf(weather, "dew_point")
@@ -155,25 +63,55 @@ class Weather(object):
         ws_pdf = get_pdf(weather, "wind_speed")
         dbtd_pdf = get_pdf(weather, "dry_bulb_time")
 
-        # get irradiation data
-        # todo: generalize workbook location
-        w_b = xlrd.open_workbook(Path("datafiles/ashrae/2017DesignConditions_s.xlsx"))
+        print("done getting monthly PDFs")
 
-        # read first and only sheet of the excel document
-        # todo: generalize selection of sheet index
-        sheet_index = 0
-        excel_sheet = w_b.sheet_by_index(sheet_index)
+        # # get monthly CDFs
+        # db_pdf = None
+        # dp_pdf = None
+        # rel_pdf = None
+        # wd_pdf = None
+        # ws_pdf = None
+        # dbtd_pdf = None
+        #
+        # #
+        # # # get irradiation data
+        # # # todo: generalize workbook location
+        design_conditions = pd.read_excel(
+            Path("datafiles/ashrae/2017DesignConditions_s.xlsx"),
+            skiprows=4,
+            header=None,
+        )
 
-        clr_sky_dir_norm = get_month_data(excel_sheet, weather.wmo, "clr_sky_dir_norm")
-        clr_sky_diff_hor = get_month_data(excel_sheet, weather.wmo, "clr_sky_diff_hor")
-        dir_norm_taub = get_month_data(excel_sheet, weather.wmo, "dir_norm_taub")
-        diff_hor_taud = get_month_data(excel_sheet, weather.wmo, "diff_hor_taud")
-        all_sky_glob_avg = get_month_data(excel_sheet, weather.wmo, "all_sky_glob_avg")
-        all_sky_glob_std = get_month_data(excel_sheet, weather.wmo, "all_sky_glob_std")
-        prec_dep_avg = get_month_data(excel_sheet, weather.wmo, "prec_dep_avg")
-        prec_dep_max = get_month_data(excel_sheet, weather.wmo, "prec_dep_max")
-        prec_dep_min = get_month_data(excel_sheet, weather.wmo, "prec_dep_min")
-        prec_dep_std = get_month_data(excel_sheet, weather.wmo, "prec_dep_std")
+        historical_avgs = pd.DataFrame(
+            None,
+            columns=[
+                "clr_sky_dir_norm",
+                "clr_sky_diff_hor",
+                "dir_norm_taub",
+                "diff_hor_taud",
+                "all_sky_glob_avg",
+                "all_sky_glob_std",
+                "prec_dep_avg",
+                "prec_dep_max",
+                "prec_dep_min",
+                "prec_dep_std",
+            ],
+            index=calendar.month_name[1:]
+        )
+
+        idx = design_conditions.index[design_conditions.iloc[:, 4] == weather.wmo]
+        historical_avgs["clr_sky_dir_norm"] = design_conditions.loc[idx, 533:544].values.flatten()
+        historical_avgs["clr_sky_dir_norm"] = design_conditions.loc[idx, 545:556].values.flatten()
+        historical_avgs["dir_norm_taub"] = design_conditions.loc[idx, 509:520].values.flatten()
+        historical_avgs["diff_hor_taud"] = design_conditions.loc[idx, 521:532].values.flatten()
+        historical_avgs["all_sky_glob_avg"] = design_conditions.loc[idx, 557:568].values.flatten()
+        historical_avgs["all_sky_glob_std"] = design_conditions.loc[idx, 569:580].values.flatten()
+        historical_avgs["prec_dep_avg"] = design_conditions.loc[idx, 206:217].values.flatten()
+        historical_avgs["prec_dep_min"] = design_conditions.loc[idx, 219:230].values.flatten()
+        historical_avgs["prec_dep_min"] = design_conditions.loc[idx, 232:243].values.flatten()
+        historical_avgs["prec_dep_std"] = design_conditions.loc[idx, 245:256].values.flatten()
+
+        print("done reading historical averages")
 
         weather.historical = OrderedDict(
             (
@@ -183,20 +121,201 @@ class Weather(object):
                 ("wind_dir_pdf", wd_pdf),
                 ("wind_speed_pdf", ws_pdf),
                 ("dry_bulb_time_pdf", dbtd_pdf),
-                ("clr_sky_dir_norm", clr_sky_dir_norm),
-                ("clr_sky_diff_hor", clr_sky_diff_hor),
-                ("dir_norm_taub", dir_norm_taub),
-                ("diff_hor_taud", diff_hor_taud),
-                ("all_sky_glob_avg", all_sky_glob_avg),
-                ("all_sky_glob_std", all_sky_glob_std),
-                ("prec_dep_avg", prec_dep_avg),
-                ("prec_dep_max", prec_dep_max),
-                ("prec_dep_min", prec_dep_min),
-                ("prec_dep_std", prec_dep_std),
             )
         )
+        for col, avg in historical_avgs.iteritems():
+            weather.historical[col] = avg.values
 
         return weather
+
+    def get_meteo_params(self, file_path):
+        # read in header information of .epw file as well as first datetime index
+        if file_path.suffix == ".epw":
+            # open energy plus weather file
+            with open(file_path, "r") as fp:
+                reader = csv.reader(fp)
+                # get relevant rows
+                rel_rows = [row for idx, row in enumerate(reader) if idx in (0, 8)]
+
+                # read in header information
+                header_line = rel_rows[0]
+                self.wmo = int(header_line[5])
+                self.folder = Path(f"datafiles/raw_tbl/{self.wmo}")
+                os.mkdir(self.folder)
+                # (latitude, longitude) in degrees -> convert to radians
+                # using convention that to the west is positive
+                self.location = (
+                    math.radians(float(header_line[6])),
+                    math.radians(-float(header_line[7])),
+                )
+                self.time_zone = -float(header_line[8])
+
+                # read in first datetime index
+                dti_line = rel_rows[1]
+                first_date = datetime.datetime(
+                    int(dti_line[0]),
+                    int(dti_line[1]),
+                    int(dti_line[2]),
+                    int(dti_line[3]),
+                )
+
+            # all header names
+            all_cols = [
+                "year",
+                "month",
+                "day",
+                "hour",
+                "minute",
+                "source_uncertainty",
+                "dry_bulb",
+                "dew_point",
+                "rel_hum",
+                "pressure",
+                "ext_hor_rad",
+                "ext_dir_norm",
+                "hor_inf_rad_int",
+                "glob_hor_rad",
+                "dir_norm_rad",
+                "diff_hor_rad",
+                "glob_hor_ill",
+                "dir_norm_ill",
+                "diff_hor_ill",
+                "zen_lum",
+                "wind_dir",
+                "wind_speed",
+                "tot_sky_cov",
+                "op_sky_cov",
+                "visibility",
+                "ceil_height",
+                "pres_wth_obs",
+                "pres_wth_cod",
+                "prec_water",
+                "aero_opt_dep",
+                "snow_depth",
+                "days_lst_snow",
+                "albedo",
+                "liq_prec_dep",
+                "liq_prec_qty",
+            ]
+
+            # read epw as csv to create pandas DataFrame for meteo_vars attribute
+            meteo_vars = pd.read_csv(
+                file_path,
+                skiprows=8,
+                header=None,
+                names=all_cols,
+                usecols=all_cols[6:],
+                index_col=False,
+                dtype=np.float64,
+            )
+
+            # get datetime index for dataframe using first datetime and number of rows in dataframe
+            meteo_vars.index = pd.date_range(
+                first_date, periods=len(meteo_vars.index), freq="H"
+            )
+
+            # add columns for quality control procedure flags
+            meteo_vars["hourly_flags"] = [[] for _ in meteo_vars.index]
+            meteo_vars["step_flags"] = [[] for _ in meteo_vars.index]
+            meteo_vars["daily_flags"] = [[] for _ in meteo_vars.index]
+            meteo_vars["monthly_flags"] = [[] for _ in meteo_vars.index]
+
+            # add flag for missing data points
+            rows, cols = np.where(meteo_vars == 9999)
+            # get integer position of hourly_flags column
+            hf_col = list(meteo_vars.columns).index("hourly_flags")
+            for row, col in zip(rows, cols):
+                meteo_vars.iloc[row, hf_col].append(
+                    f"missing data for {list(meteo_vars.columns)[col]}"
+                )
+
+        print("done reading epw file")
+        self.meteo_vars = meteo_vars
+
+    def get_solar_angles(self):
+
+        # get hours in meteorological file
+        hours = len(self.meteo_vars.index)
+        latitude = self.location[0]
+        longitude = self.location[1]
+
+        solar_angles = pd.DataFrame(None, columns=["declination", "hour_angle", "zenith", "altitude", "azimuth", "day"],
+            index=self.meteo_vars.index,
+        )
+
+        for time, _ in self.meteo_vars.iterrows():
+            # fractional day of the year
+            n = time.dayofyear - 0.5 + (time.hour - 0.5) / 24
+            # equation of time
+            B = math.radians((n - 1) * 360 / 365)
+            E = 2.2918 * (
+                    0.0075
+                    + 0.1868 * math.cos(B)
+                    - 3.2077 * math.sin(B)
+                    - 1.4615 * math.cos(2 * B)
+                    - 4.089 * math.sin(2 * B)
+            )
+
+            # solar declination angle
+            declin = (
+                    0.006918
+                    - 0.399912 * math.cos(B)
+                    + 0.070257 * math.sin(B)
+                    - 0.006758 * math.cos(2 * B)
+                    + 0.000907 * math.sin(2 * B)
+                    - 0.002697 * math.cos(3 * B)
+                    + 0.00148 * math.sin(3 * B)
+            )
+            solar_angles["declination"][time] = declin
+
+            # solar time
+            t_s = (
+                          time.hour
+                          - 0.5
+                          + (4 * (self.time_zone * 15 - math.degrees(longitude)) + E) / 60
+                  ) % 24
+            # solar hour angle
+            hour_angle = math.radians((t_s - 12) * 15)
+            solar_angles["hour_angle"][time] = hour_angle
+
+            # calculate sunrise and sunset angles
+            sunset = math.acos(-math.sin(latitude) * math.tan(declin))
+            sunrise = -sunset
+            if hour_angle < sunrise:
+                solar_angles["day"][time] = False
+
+            elif hour_angle > sunset:
+                solar_angles["day"][time] = False
+
+            else:
+                solar_angles["day"][time] = True
+
+            # solar zenith angle
+            zenith = math.acos(
+                math.cos(latitude) * math.cos(declin) * math.cos(hour_angle)
+                + math.sin(latitude) * math.sin(declin)
+            )
+
+            solar_angles["zenith"][time] = zenith
+
+            # altitude = math.asin(math.cos(zenith))
+            # solar_angles["altitude"][time] = altitude
+            #
+            # # todo: find equivalent of sign() in python (not math.copysign)
+            #
+            # azimuth = math.copysign(
+            #     abs(
+            #         math.acos(
+            #             (math.cos(zenith) * math.sin(latitude) - math.sin(declin))
+            #             / (math.sin(zenith) * math.cos(latitude)),
+            #         )
+            #     ),
+            #     hour_angle,
+            # )
+            # solar_angles["azimuth"][time] = azimuth
+
+        print("done calculating solar angles")
+        self.solar_angles = solar_angles
 
     def database_qc(self):
         pass
@@ -815,7 +934,7 @@ class Weather(object):
             # get flagged values for the meteorological variable
             for time, value in self.meteo_vars[meteo_var].iteritems():
                 for flag in self.meteo_vars["hourly_flags"][time]:
-                    if re.match(fr".*{string_check}", flag) and time.month == month + 1:
+                    if re.match(rf".*{string_check}", flag) and time.month == month + 1:
                         value_list.append(value)
                         time_list.append(time)
 
@@ -850,8 +969,8 @@ class Weather(object):
             ax1 = fig.add_subplot(111)
             ax2 = ax1.twinx()
             ax1.grid(alpha=0.2)
-            plt.rcParams["font.family"] = "Times New Roman"
-            csfont = {"fontname": "Times New Roman"}
+            plt.rcParams["font.family"] = "Arial"
+            csfont = {"fontname": "Arial"}
             fontsz = {"fontsize": 10}
 
             ax1.hist(bins, bins=len(bins), weights=pdf, color="gray")
@@ -874,7 +993,9 @@ class Weather(object):
             plt.vlines(perc_99th, 0, 24, colors="red")
 
             if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
-                plt.title("Typical Meteorological Year", fontweight="bold", **csfont, **fontsz)
+                plt.title(
+                    "Typical Meteorological Year", fontweight="bold", **csfont, **fontsz
+                )
 
             if self.file_path.stem == "tampered":
                 plt.title("Tampered Year", fontweight="bold", **csfont, **fontsz)
@@ -909,8 +1030,8 @@ class Weather(object):
             plt.figure(figsize=(3.3, 5))
             gs1 = gridspec.GridSpec(24, 1)
             gs1.update(wspace=0, hspace=0)  # set the spacing between axes.
-            plt.rcParams["font.family"] = "Times New Roman"
-            csfont = {"fontname": "Times New Roman"}
+            plt.rcParams["font.family"] = "Arial"
+            csfont = {"fontname": "Arial"}
             fontsz = {"fontsize": 10}
 
             # make a subplot of the histogram for each hour of the month
@@ -918,25 +1039,33 @@ class Weather(object):
                 # get 1st percentile and 99th percentile values
                 perc_1st_idx = min(
                     range(len(self.historical[pdf_name]["cdf"][month][hour])),
-                    key=lambda i: abs(self.historical[pdf_name]["cdf"][month][hour][i] - 0.01),
+                    key=lambda i: abs(
+                        self.historical[pdf_name]["cdf"][month][hour][i] - 0.01
+                    ),
                 )
                 perc_1st = self.historical[pdf_name]["bin"][month][hour][perc_1st_idx]
 
                 perc_99th_idx = min(
                     range(len(self.historical[pdf_name]["cdf"][month][hour])),
-                    key=lambda i: abs(self.historical[pdf_name]["cdf"][month][hour][i] - 0.99),
+                    key=lambda i: abs(
+                        self.historical[pdf_name]["cdf"][month][hour][i] - 0.99
+                    ),
                 )
                 perc_99th = self.historical[pdf_name]["bin"][month][hour][perc_99th_idx]
 
                 bins = self.historical[pdf_name]["bin"][month][hour]
                 pdf = self.historical[pdf_name]["pdf"][month][hour]
 
-                plt.axis('on')
+                plt.axis("on")
                 ax1 = plt.subplot(gs1[23 - hour])
                 ax2 = ax1.twinx()
                 ax1.xaxis.grid(True, alpha=0.2)
                 ax1.hist(bins, bins=len(bins), weights=pdf, color="gray")
-                ax2.plot(daily_profile[hour:hour + 2], np.arange(hour, hour + 2, 1), color="blue")
+                ax2.plot(
+                    daily_profile[hour : hour + 2],
+                    np.arange(hour, hour + 2, 1),
+                    color="blue",
+                )
                 if hour == 12:
                     ax1.set_ylabel("Probability", **csfont, **fontsz)
                     ax2.set_ylabel("Hour of the day", **csfont, **fontsz, color="blue")
@@ -956,7 +1085,12 @@ class Weather(object):
                 ax1.xaxis.set_minor_locator(ml)
 
                 ax2.set_ylim([hour, hour + 1])
-                ax2.set_yticklabels([f"{int(y)}" for y in ax2.get_yticks()], color="blue", **csfont, **fontsz)
+                ax2.set_yticklabels(
+                    [f"{int(y)}" for y in ax2.get_yticks()],
+                    color="blue",
+                    **csfont,
+                    **fontsz,
+                )
 
                 if hour == 0:
                     ax1.set_xlabel("Dry bulb temperature [°C]", **csfont, **fontsz)
@@ -980,23 +1114,27 @@ class Weather(object):
                 ax2.vlines(perc_99th, hour, hour + 1, colors="red")
 
             if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
-                plt.title("Typical Meteorological Year", fontweight="bold", **csfont, **fontsz)
+                plt.title(
+                    "Typical Meteorological Year", fontweight="bold", **csfont, **fontsz
+                )
 
             if self.file_path.stem == "tampered":
                 plt.title("Tampered Year", fontweight="bold", **csfont, **fontsz)
 
             plt.tight_layout(pad=0.05)
-            plt.savefig(Path(f"datafiles/figures/dry_bulb_profile_{self.file_path.stem}.svg"))
+            plt.savefig(
+                Path(f"datafiles/figures/dry_bulb_profile_{self.file_path.stem}.svg")
+            )
 
         elif check == "monthly":
 
             plt.figure(figsize=(3.3, 4))
             gs1 = gridspec.GridSpec(12, 1)
             gs1.update(wspace=0, hspace=0)  # set the spacing between axes.
-            plt.rcParams["font.family"] = "Times New Roman"
-            plt.rcParams['mathtext.fontset'] = 'cm'
+            plt.rcParams["font.family"] = "Arial"
+            plt.rcParams["mathtext.fontset"] = "cm"
 
-            csfont = {"fontname": "Times New Roman"}
+            csfont = {"fontname": "Arial"}
             fontsz = {"fontsize": 10}
 
             past_days = 364
@@ -1015,16 +1153,18 @@ class Weather(object):
                 y = norm.pdf(x, mu, sigma)
 
                 # get all indices
-                days_in_month = calendar.monthrange(self.meteo_vars.index[0].year, month + 1)[1]
+                days_in_month = calendar.monthrange(
+                    self.meteo_vars.index[0].year, month + 1
+                )[1]
                 days_sum = []
                 for day in range(past_days, past_days - days_in_month, -1):
-                    day_slice = slice(day*24, (day + 1) * 24, 1)
+                    day_slice = slice(day * 24, (day + 1) * 24, 1)
                     days_sum.append(sum(self.meteo_vars["glob_hor_rad"][day_slice]))
                 past_days -= days_in_month
 
                 month_average = np.mean(days_sum) / 1000
 
-                plt.axis('on')
+                plt.axis("on")
                 ax1 = plt.subplot(gs1[month])
                 ax2 = ax1.twinx()
                 ax1.xaxis.grid(True, alpha=0.2, which="both")
@@ -1042,7 +1182,12 @@ class Weather(object):
                 ax1.xaxis.set_minor_locator(ml)
 
                 ax1.set_yticks([-1, 0, 1])
-                ax1.set_yticklabels(['', calendar.month_name[month + 1], ''], color="blue", **csfont, **fontsz)
+                ax1.set_yticklabels(
+                    ["", calendar.month_name[month + 1], ""],
+                    color="blue",
+                    **csfont,
+                    **fontsz,
+                )
                 for i, tic in enumerate(ax1.yaxis.get_major_ticks()):
                     if i != 1:
                         tic.label1.set_visible(False)
@@ -1051,7 +1196,13 @@ class Weather(object):
                     tic.tick2line.set_visible(False)
 
                 if month == 11:
-                    ax1.set_xlabel(r"Monthly average" "\n" r"global horizontal irradiation [kWh/$\rm m^2$]", **csfont, **fontsz)
+                    ax1.set_xlabel(
+                        r"Monthly average"
+                        "\n"
+                        r"global horizontal irradiation [kWh/$\rm m^2$]",
+                        **csfont,
+                        **fontsz,
+                    )
                     ax1.set_xticklabels(ax1.get_xticks(), **csfont, **fontsz)
 
                 else:
@@ -1072,13 +1223,17 @@ class Weather(object):
                 ax2.vlines(perc_99th, 0, max(y), colors="red")
 
             if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
-                plt.title("Typical Meteorological Year", fontweight="bold", **csfont, **fontsz)
+                plt.title(
+                    "Typical Meteorological Year", fontweight="bold", **csfont, **fontsz
+                )
 
             if self.file_path.stem == "CAN-QC - Montreal YUL 716270 - ISD 2015":
                 plt.title("2015", fontweight="bold", **csfont, **fontsz)
 
             plt.tight_layout(pad=0.05)
-            plt.savefig(Path(f"datafiles/figures/glob_rad_months_{self.file_path.stem}.svg"))
+            plt.savefig(
+                Path(f"datafiles/figures/glob_rad_months_{self.file_path.stem}.svg")
+            )
 
 
 def get_pdf(weather, meteo_var):
@@ -1254,98 +1409,3 @@ def get_month_data(excel_sheet, wmo, var_type):
     month_data = [None if c.value == "N/A" else float(c.value) for c in cells]
 
     return month_data
-
-
-def get_solar_angles(weather):
-
-    # get hours in meteorological file
-    hours = len(weather.meteo_vars["dry_bulb"])
-    latitude = weather.location[0]
-    longitude = weather.location[1]
-
-    solar_angles = pd.DataFrame(
-        OrderedDict(
-            (
-                ("declination", np.empty(hours)),
-                ("hour_angle", np.empty(hours)),
-                ("zenith", np.empty(hours)),
-                ("altitude", np.empty(hours)),
-                ("azimuth", np.empty(hours)),
-                ("day", np.empty(hours)),
-            )
-        ),
-        index=weather.meteo_vars.index,
-    )
-
-    for time, _ in weather.meteo_vars.iterrows():
-        # fractional day of the year
-        n = time.dayofyear - 0.5 + (time.hour - 0.5) / 24
-        # equation of time
-        B = math.radians((n - 1) * 360 / 365)
-        E = 2.2918 * (
-            0.0075
-            + 0.1868 * math.cos(B)
-            - 3.2077 * math.sin(B)
-            - 1.4615 * math.cos(2 * B)
-            - 4.089 * math.sin(2 * B)
-        )
-
-        # solar declination angle
-        declin = (
-            0.006918
-            - 0.399912 * math.cos(B)
-            + 0.070257 * math.sin(B)
-            - 0.006758 * math.cos(2 * B)
-            + 0.000907 * math.sin(2 * B)
-            - 0.002697 * math.cos(3 * B)
-            + 0.00148 * math.sin(3 * B)
-        )
-        solar_angles["declination"][time] = declin
-
-        # solar time
-        t_s = (
-            time.hour
-            - 0.5
-            + (4 * (weather.time_zone * 15 - math.degrees(longitude)) + E) / 60
-        ) % 24
-        # solar hour angle
-        hour_angle = math.radians((t_s - 12) * 15)
-        solar_angles["hour_angle"][time] = hour_angle
-
-        # calculate sunrise and sunset angles
-        sunset = math.acos(-math.sin(latitude) * math.tan(declin))
-        sunrise = -sunset
-        if hour_angle < sunrise:
-            solar_angles["day"][time] = False
-
-        elif hour_angle > sunset:
-            solar_angles["day"][time] = False
-
-        else:
-            solar_angles["day"][time] = True
-
-        # solar zenith angle
-        zenith = math.acos(
-            math.cos(latitude) * math.cos(declin) * math.cos(hour_angle)
-            + math.sin(latitude) * math.sin(declin)
-        )
-
-        solar_angles["zenith"][time] = zenith
-
-        altitude = math.asin(math.cos(zenith))
-        solar_angles["altitude"][time] = altitude
-
-        # todo: find equivalent of sign() in python (not math.copysign)
-
-        azimuth = math.copysign(
-            abs(
-                math.acos(
-                    (math.cos(zenith) * math.sin(latitude) - math.sin(declin))
-                    / (math.sin(zenith) * math.cos(latitude)),
-                )
-            ),
-            hour_angle,
-        )
-        solar_angles["azimuth"][time] = azimuth
-
-    return solar_angles

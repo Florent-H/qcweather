@@ -2,6 +2,7 @@ import pytest
 import os
 import shutil
 from pathlib import Path
+from qcweather import Weather
 """
 ~~~ PYTEST FIXTURES ~~~
 """
@@ -10,8 +11,8 @@ from pathlib import Path
 def epw_path():
     from pathlib import Path
     # CAN-QC - Montreal YUL 716270 - ISD 2015
-    # yield Path("datafiles/epw_files/tampered.epw")
-    yield Path("datafiles/epw_files/CAN_QC_Montreal-McTavish.716120_CWEC2016.epw")
+    yield Path("datafiles/epw_files/tampered.epw")
+    # yield Path("datafiles/epw_files/CAN_QC_Montreal-McTavish.716120_CWEC2016.epw")
     # yield Path("datafiles/epw_files/CAN-QC - Montreal YUL 716270 - ISD 2015.epw")
 
 @pytest.fixture()
@@ -41,3 +42,14 @@ class TestsQualityControl:
         with capsys.disabled():
             from qcweather import get_month_rad_graphs
             get_month_rad_graphs()
+
+    def test_get_month_rad_extreme_graphs(self, config, capsys):
+        with capsys.disabled():
+            from qcweather import get_month_rad_extreme_graphs
+            get_month_rad_extreme_graphs()
+
+    def test_get_graph(self, config, capsys, epw_path):
+        with capsys.disabled():
+            weather = Weather.get_weather(epw_path)
+            weather.get_graph("hourly", "dew_point")
+

@@ -1,20 +1,14 @@
 import csv
-import itertools
 import math
 import os
 import re
 import subprocess
-
 import pandas as pd
 import numpy as np
-import matplotlib as plt
 import calendar
 import datetime
 from pathlib import Path
-
-# import epw
 from collections import OrderedDict
-import xlrd
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib.ticker import MultipleLocator
@@ -22,8 +16,11 @@ from scipy.stats import norm
 
 
 class Weather(object):
-    def __init__(self, file_path):
-        self.file_path = file_path
+    def __init__(self, weather_path, drive_letter, ashrae_path, output_dir):
+        self.weather_path = weather_path
+        self.drive_letter = drive_letter
+        self.ashrae_path = ashrae_path
+        self.output_dir = output_dir
         self.wmo = None
         self.folder = None
         self.location = None
@@ -33,55 +30,52 @@ class Weather(object):
         self.historical = None
 
     @classmethod
-    def get_weather(cls, file_path):
+    def get_weather(cls, weather_path, drive_letter, ashrae_path, output_dir):
 
         # instantiate Weather object
-        weather = cls(file_path)
+        weather = cls(weather_path, drive_letter, ashrae_path, output_dir)
 
         # get meteorological parameters (such as longitude and latitude of weather station, dry bulb temperature,
         # and wind speed)
-        weather.get_meteo_params(file_path)
+        weather.get_meteo_params()
 
         # get solar angles
         weather.get_solar_angles()
 
-        # gather historical data for the meteorological variables
+        # gather historical local weather data
+        weather.get_historical()
+
+        return weather
+
+    def get_historical(self):
+        # create folder for collecting cumulative distribution function text tables
+        self.folder = Path(self.output_dir) / f"raw_tbl/{self.wmo}"
+        os.mkdir(self.folder)
 
         # run tblexpand to gather raw historical weather data
         run_string = (
-            str(Path("E:/tblxpand/tblxpand.exe"))
-            + f" {weather.folder} "
-            + str(Path(f"E:/data/{weather.wmo}.wdv"))
+            str(Path(f"{self.drive_letter}:/tblxpand/tblxpand.exe"))
+            + f" {self.folder} "
+            + str(Path(f"{self.drive_letter}:/data/{self.wmo}.wdv"))
             + " ALL 99 SI"
         )
         subprocess.run(run_string, cwd=Path.cwd(), capture_output=True)
-        # get monthly CDFs
-        db_pdf = get_pdf(weather, "dry_bulb")
-        dp_pdf = get_pdf(weather, "dew_point")
-        rel_pdf = get_pdf(weather, "rel_hum")
-        wd_pdf = get_pdf(weather, "wind_dir")
-        ws_pdf = get_pdf(weather, "wind_speed")
-        dbtd_pdf = get_pdf(weather, "dry_bulb_time")
 
+        # get monthly probability distribution functions
+        db_pdf = self.get_pdf("dry_bulb")
+        dp_pdf = self.get_pdf("dew_point")
+        rel_pdf = self.get_pdf("rel_hum")
+        wd_pdf = self.get_pdf("wind_dir")
+        ws_pdf = self.get_pdf("wind_speed")
+        dbtd_pdf = self.get_pdf("dry_bulb_time")
         print("done getting monthly PDFs")
 
-        # # get monthly CDFs
-        # db_pdf = None
-        # dp_pdf = None
-        # rel_pdf = None
-        # wd_pdf = None
-        # ws_pdf = None
-        # dbtd_pdf = None
-        #
-        # #
-        # # # get irradiation data
-        # # # todo: generalize workbook location
+        # get monthly averages and standard deviations for irradiation and precipitation depth from Excel file
         design_conditions = pd.read_excel(
-            Path("datafiles/ashrae/2017DesignConditions_s.xlsx"),
+            Path(self.ashrae_path),
             skiprows=4,
             header=None,
         )
-
         historical_avgs = pd.DataFrame(
             None,
             columns=[
@@ -96,24 +90,41 @@ class Weather(object):
                 "prec_dep_min",
                 "prec_dep_std",
             ],
-            index=calendar.month_name[1:]
+            index=calendar.month_name[1:],
         )
-
-        idx = design_conditions.index[design_conditions.iloc[:, 4] == weather.wmo]
-        historical_avgs["clr_sky_dir_norm"] = design_conditions.loc[idx, 533:544].values.flatten()
-        historical_avgs["clr_sky_dir_norm"] = design_conditions.loc[idx, 545:556].values.flatten()
-        historical_avgs["dir_norm_taub"] = design_conditions.loc[idx, 509:520].values.flatten()
-        historical_avgs["diff_hor_taud"] = design_conditions.loc[idx, 521:532].values.flatten()
-        historical_avgs["all_sky_glob_avg"] = design_conditions.loc[idx, 557:568].values.flatten()
-        historical_avgs["all_sky_glob_std"] = design_conditions.loc[idx, 569:580].values.flatten()
-        historical_avgs["prec_dep_avg"] = design_conditions.loc[idx, 206:217].values.flatten()
-        historical_avgs["prec_dep_min"] = design_conditions.loc[idx, 219:230].values.flatten()
-        historical_avgs["prec_dep_min"] = design_conditions.loc[idx, 232:243].values.flatten()
-        historical_avgs["prec_dep_std"] = design_conditions.loc[idx, 245:256].values.flatten()
-
-        print("done reading historical averages")
-
-        weather.historical = OrderedDict(
+        idx = design_conditions.index[design_conditions.iloc[:, 4] == self.wmo]
+        historical_avgs["clr_sky_dir_norm"] = design_conditions.loc[
+            idx, 533:544
+        ].values.flatten()
+        historical_avgs["clr_sky_dir_norm"] = design_conditions.loc[
+            idx, 545:556
+        ].values.flatten()
+        historical_avgs["dir_norm_taub"] = design_conditions.loc[
+            idx, 509:520
+        ].values.flatten()
+        historical_avgs["diff_hor_taud"] = design_conditions.loc[
+            idx, 521:532
+        ].values.flatten()
+        historical_avgs["all_sky_glob_avg"] = design_conditions.loc[
+            idx, 557:568
+        ].values.flatten()
+        historical_avgs["all_sky_glob_std"] = design_conditions.loc[
+            idx, 569:580
+        ].values.flatten()
+        historical_avgs["prec_dep_avg"] = design_conditions.loc[
+            idx, 206:217
+        ].values.flatten()
+        historical_avgs["prec_dep_min"] = design_conditions.loc[
+            idx, 219:230
+        ].values.flatten()
+        historical_avgs["prec_dep_min"] = design_conditions.loc[
+            idx, 232:243
+        ].values.flatten()
+        historical_avgs["prec_dep_std"] = design_conditions.loc[
+            idx, 245:256
+        ].values.flatten()
+        print("done reading historical averages and std")
+        self.historical = OrderedDict(
             (
                 ("dry_bulb_pdf", db_pdf),
                 ("dew_point_pdf", dp_pdf),
@@ -124,15 +135,13 @@ class Weather(object):
             )
         )
         for col, avg in historical_avgs.iteritems():
-            weather.historical[col] = avg.values
+            self.historical[col] = avg.values
 
-        return weather
-
-    def get_meteo_params(self, file_path):
+    def get_meteo_params(self):
         # read in header information of .epw file as well as first datetime index
-        if file_path.suffix == ".epw":
+        if self.weather_path.suffix == ".epw":
             # open energy plus weather file
-            with open(file_path, "r") as fp:
+            with open(self.weather_path, "r") as fp:
                 reader = csv.reader(fp)
                 # get relevant rows
                 rel_rows = [row for idx, row in enumerate(reader) if idx in (0, 8)]
@@ -140,8 +149,6 @@ class Weather(object):
                 # read in header information
                 header_line = rel_rows[0]
                 self.wmo = int(header_line[5])
-                self.folder = Path(f"datafiles/raw_tbl/{self.wmo}")
-                os.mkdir(self.folder)
                 # (latitude, longitude) in degrees -> convert to radians
                 # using convention that to the west is positive
                 self.location = (
@@ -200,7 +207,7 @@ class Weather(object):
 
             # read epw as csv to create pandas DataFrame for meteo_vars attribute
             meteo_vars = pd.read_csv(
-                file_path,
+                self.weather_path,
                 skiprows=8,
                 header=None,
                 names=all_cols,
@@ -235,11 +242,15 @@ class Weather(object):
     def get_solar_angles(self):
 
         # get hours in meteorological file
-        hours = len(self.meteo_vars.index)
         latitude = self.location[0]
         longitude = self.location[1]
 
-        solar_angles = pd.DataFrame(None, columns=["declination", "hour_angle", "zenith", "altitude", "azimuth", "day"],
+        # solar_angles = pd.DataFrame(None, columns=["declination", "hour_angle", "zenith", "altitude", "azimuth", "day"],
+        #     index=self.meteo_vars.index,
+        # )
+        solar_angles = pd.DataFrame(
+            None,
+            columns=["declination", "hour_angle", "zenith", "day"],
             index=self.meteo_vars.index,
         )
 
@@ -249,31 +260,31 @@ class Weather(object):
             # equation of time
             B = math.radians((n - 1) * 360 / 365)
             E = 2.2918 * (
-                    0.0075
-                    + 0.1868 * math.cos(B)
-                    - 3.2077 * math.sin(B)
-                    - 1.4615 * math.cos(2 * B)
-                    - 4.089 * math.sin(2 * B)
+                0.0075
+                + 0.1868 * math.cos(B)
+                - 3.2077 * math.sin(B)
+                - 1.4615 * math.cos(2 * B)
+                - 4.089 * math.sin(2 * B)
             )
 
             # solar declination angle
             declin = (
-                    0.006918
-                    - 0.399912 * math.cos(B)
-                    + 0.070257 * math.sin(B)
-                    - 0.006758 * math.cos(2 * B)
-                    + 0.000907 * math.sin(2 * B)
-                    - 0.002697 * math.cos(3 * B)
-                    + 0.00148 * math.sin(3 * B)
+                0.006918
+                - 0.399912 * math.cos(B)
+                + 0.070257 * math.sin(B)
+                - 0.006758 * math.cos(2 * B)
+                + 0.000907 * math.sin(2 * B)
+                - 0.002697 * math.cos(3 * B)
+                + 0.00148 * math.sin(3 * B)
             )
             solar_angles["declination"][time] = declin
 
             # solar time
             t_s = (
-                          time.hour
-                          - 0.5
-                          + (4 * (self.time_zone * 15 - math.degrees(longitude)) + E) / 60
-                  ) % 24
+                time.hour
+                - 0.5
+                + (4 * (self.time_zone * 15 - math.degrees(longitude)) + E) / 60
+            ) % 24
             # solar hour angle
             hour_angle = math.radians((t_s - 12) * 15)
             solar_angles["hour_angle"][time] = hour_angle
@@ -317,8 +328,135 @@ class Weather(object):
         print("done calculating solar angles")
         self.solar_angles = solar_angles
 
-    def database_qc(self):
-        pass
+    def get_pdf(self, meteo_var):
+
+        if meteo_var == "dry_bulb":
+            meteo_id = "DB"
+
+        elif meteo_var == "dew_point":
+            meteo_id = "DP"
+
+        elif meteo_var == "rel_hum":
+            meteo_id = "DBDP"
+
+        elif meteo_var == "wind_dir":
+            meteo_id = "WD"
+
+        elif meteo_var == "wind_speed":
+            meteo_id = "WS"
+
+        elif meteo_var == "dry_bulb_time":
+            meteo_id = "DBTD"
+        else:
+            raise ValueError(
+                "meteo_var must be either 'dry_bulb', 'dew_point', 'rel_hum', 'wind_dir', 'wind_speed', or 'dry_bulb_time'"
+            )
+
+        if meteo_id == "DBTD":
+            pdf = {
+                "bin": [[[] for i in range(24)] for i in range(12)],
+                "freq": [[[] for i in range(24)] for i in range(12)],
+                "cdf": [[[] for i in range(24)] for i in range(12)],
+                "pdf": [[[] for i in range(24)] for i in range(12)],
+            }
+
+        else:
+            pdf = {
+                "bin": [[] for i in range(12)],
+                "freq": [[] for i in range(12)],
+                "cdf": [[] for i in range(12)],
+                "pdf": [[] for i in range(12)],
+            }
+
+        for m in range(12):
+            if m < 9:
+                month = f"0{m + 1}"
+            else:
+                month = f"{m + 1}"
+            month_path = self.folder / f"{self.wmo}_{meteo_id}_{month}.txt"
+
+            with open(month_path, "r") as fp:
+                # skip the five-line or four-line header
+                if meteo_id in ("DBDP", "DBTD"):
+                    skip = 4
+                else:
+                    skip = 5
+
+                for n in range(skip):
+                    next(fp)
+
+                for j, line in enumerate(fp):
+                    if meteo_id == "DBDP":
+                        if j == 0:
+                            dew_point = [float(s) for s in line.split()[1:]]
+                            dry_bulb = []
+                            freq = []
+
+                        else:
+                            dry_bulb.append(float(line.split()[0]))
+                            freq.append([float(s) for s in line.split()[1:]])
+
+                    elif meteo_id == "DBTD":
+                        if j == 0:
+                            time_day = [float(s) for s in line.split()[1:]]
+                            dry_bulb_day = []
+                            freq_day = [[] for s in line.split()[1:]]
+
+                        else:
+                            dry_bulb_day.append(float(line.split()[0]))
+                            for s, _ in enumerate(freq_day):
+                                freq_day[s].append(float(line.split()[s + 1]))
+                    else:
+                        pdf["bin"][m].append(float(line.split()[0]))
+                        pdf["freq"][m].append(float(line.split()[1]))
+                        pdf["cdf"][m].append(float(line.split()[2]))
+
+            # todo: remove
+            if meteo_id == "DBDP":
+                bin_unsorted = []
+                freq_unsorted = []
+                run_freq_sum = [0]
+
+                for x, db in enumerate(dry_bulb):
+                    for y, dp in enumerate(dew_point):
+                        bin_unsorted.append(
+                            100
+                            * (17.625 * dp / (243.04 + dp))
+                            / (
+                                17.625
+                                * (db + 0.00000000000000000000001)
+                                / (243.04 + db)
+                            )
+                        )
+                        freq_unsorted.append(freq[x][y])
+                        run_freq_sum.append(run_freq_sum[-1] + freq[x][y])
+
+                # sort bins and corresponding frequencies
+                pdf["bin"][m] = sorted(bin_unsorted)
+                pdf["freq"][m] = [
+                    f for _, f in sorted(zip(pdf["bin"][m], freq_unsorted))
+                ]
+                pdf["cdf"][m] = [
+                    c / run_freq_sum[-1]
+                    for _, c in sorted(zip(pdf["bin"][m], run_freq_sum))
+                ]
+
+            if meteo_id is not "DBTD":
+                # calculate probability distribution function
+                total_obs = sum(pdf["freq"][m])
+                pdf["pdf"][m] = [f / total_obs for f in pdf["freq"][m]]
+
+            else:
+                for h, _ in enumerate(time_day):
+                    run_freq_sum = 0
+                    for x, _ in enumerate(dry_bulb_day):
+                        pdf["bin"][m][h].append(dry_bulb_day[x])
+                        pdf["freq"][m][h].append(freq_day[h][x])
+                        pdf["pdf"][m][h].append(freq_day[h][x] / sum(freq_day[h]))
+                        run_freq_sum += freq_day[h][x]
+                        pdf["cdf"][m][h].append(run_freq_sum / sum(freq_day[h]))
+
+        return pdf
 
     def hour_qc(self):
         # check that meteorological variable values do not exceed thresholds
@@ -992,16 +1130,18 @@ class Weather(object):
             plt.vlines(perc_1st, 0, 24, colors="red")
             plt.vlines(perc_99th, 0, 24, colors="red")
 
-            if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
+            if self.weather_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
                 plt.title(
                     "Typical Meteorological Year", fontweight="bold", **csfont, **fontsz
                 )
 
-            if self.file_path.stem == "tampered":
+            if self.weather_path.stem == "tampered":
                 plt.title("Tampered Year", fontweight="bold", **csfont, **fontsz)
 
             plt.tight_layout(pad=0.05)
-            plt.savefig(Path(f"datafiles/figures/dew_point_{self.file_path.stem}.svg"))
+            plt.savefig(
+                Path(f"datafiles/figures/dew_point_{self.weather_path.stem}.svg")
+            )
 
         elif check == "daily":
 
@@ -1113,17 +1253,17 @@ class Weather(object):
                 ax2.vlines(perc_1st, hour, hour + 1, colors="red")
                 ax2.vlines(perc_99th, hour, hour + 1, colors="red")
 
-            if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
+            if self.weather_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
                 plt.title(
                     "Typical Meteorological Year", fontweight="bold", **csfont, **fontsz
                 )
 
-            if self.file_path.stem == "tampered":
+            if self.weather_path.stem == "tampered":
                 plt.title("Tampered Year", fontweight="bold", **csfont, **fontsz)
 
             plt.tight_layout(pad=0.05)
             plt.savefig(
-                Path(f"datafiles/figures/dry_bulb_profile_{self.file_path.stem}.svg")
+                Path(f"datafiles/figures/dry_bulb_profile_{self.weather_path.stem}.svg")
             )
 
         elif check == "monthly":
@@ -1171,11 +1311,11 @@ class Weather(object):
                 ax1.barh(0, month_average, align="center", color="blue")
                 ax2.plot(x, y, color="gray")
 
-                if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
+                if self.weather_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
                     ax1.set_xticks(range(8))
                     ax1.set_xlim([0, 7])
 
-                if self.file_path.stem == "CAN-QC - Montreal YUL 716270 - ISD 2015":
+                if self.weather_path.stem == "CAN-QC - Montreal YUL 716270 - ISD 2015":
                     ax1.set_xticks(range(9))
                     ax1.set_xlim([0, 8])
                 ml = MultipleLocator(0.5)
@@ -1222,143 +1362,18 @@ class Weather(object):
                 ax2.vlines(perc_1st, 0, max(y), colors="red")
                 ax2.vlines(perc_99th, 0, max(y), colors="red")
 
-            if self.file_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
+            if self.weather_path.stem == "CAN_QC_Montreal-McTavish.716120_CWEC2016":
                 plt.title(
                     "Typical Meteorological Year", fontweight="bold", **csfont, **fontsz
                 )
 
-            if self.file_path.stem == "CAN-QC - Montreal YUL 716270 - ISD 2015":
+            if self.weather_path.stem == "CAN-QC - Montreal YUL 716270 - ISD 2015":
                 plt.title("2015", fontweight="bold", **csfont, **fontsz)
 
             plt.tight_layout(pad=0.05)
             plt.savefig(
-                Path(f"datafiles/figures/glob_rad_months_{self.file_path.stem}.svg")
+                Path(f"datafiles/figures/glob_rad_months_{self.weather_path.stem}.svg")
             )
-
-
-def get_pdf(weather, meteo_var):
-
-    if meteo_var == "dry_bulb":
-        meteo_id = "DB"
-
-    elif meteo_var == "dew_point":
-        meteo_id = "DP"
-
-    elif meteo_var == "rel_hum":
-        meteo_id = "DBDP"
-
-    elif meteo_var == "wind_dir":
-        meteo_id = "WD"
-
-    elif meteo_var == "wind_speed":
-        meteo_id = "WS"
-
-    elif meteo_var == "dry_bulb_time":
-        meteo_id = "DBTD"
-    else:
-        raise ValueError(
-            "meteo_var must be either 'dry_bulb', 'dew_point', 'rel_hum', 'wind_dir', 'wind_speed', or 'dry_bulb_time'"
-        )
-
-    if meteo_id == "DBTD":
-        pdf = {
-            "bin": [[[] for i in range(24)] for i in range(12)],
-            "freq": [[[] for i in range(24)] for i in range(12)],
-            "cdf": [[[] for i in range(24)] for i in range(12)],
-            "pdf": [[[] for i in range(24)] for i in range(12)],
-        }
-
-    else:
-        pdf = {
-            "bin": [[] for i in range(12)],
-            "freq": [[] for i in range(12)],
-            "cdf": [[] for i in range(12)],
-            "pdf": [[] for i in range(12)],
-        }
-
-    for m in range(12):
-        if m < 9:
-            month = f"0{m + 1}"
-        else:
-            month = f"{m + 1}"
-        month_path = weather.folder / f"{weather.wmo}_{meteo_id}_{month}.txt"
-
-        with open(month_path, "r") as fp:
-            # skip the five-line or four-line header
-            if meteo_id in ("DBDP", "DBTD"):
-                skip = 4
-            else:
-                skip = 5
-
-            for n in range(skip):
-                next(fp)
-
-            for j, line in enumerate(fp):
-                if meteo_id == "DBDP":
-                    if j == 0:
-                        dew_point = [float(s) for s in line.split()[1:]]
-                        dry_bulb = []
-                        freq = []
-
-                    else:
-                        dry_bulb.append(float(line.split()[0]))
-                        freq.append([float(s) for s in line.split()[1:]])
-
-                elif meteo_id == "DBTD":
-                    if j == 0:
-                        time_day = [float(s) for s in line.split()[1:]]
-                        dry_bulb_day = []
-                        freq_day = [[] for s in line.split()[1:]]
-
-                    else:
-                        dry_bulb_day.append(float(line.split()[0]))
-                        for s, _ in enumerate(freq_day):
-                            freq_day[s].append(float(line.split()[s + 1]))
-                else:
-                    pdf["bin"][m].append(float(line.split()[0]))
-                    pdf["freq"][m].append(float(line.split()[1]))
-                    pdf["cdf"][m].append(float(line.split()[2]))
-
-        # todo: remove
-        if meteo_id == "DBDP":
-            bin_unsorted = []
-            freq_unsorted = []
-            run_freq_sum = [0]
-
-            for x, db in enumerate(dry_bulb):
-                for y, dp in enumerate(dew_point):
-                    bin_unsorted.append(
-                        100
-                        * (17.625 * dp / (243.04 + dp))
-                        / (17.625 * (db + 0.00000000000000000000001) / (243.04 + db))
-                    )
-                    freq_unsorted.append(freq[x][y])
-                    run_freq_sum.append(run_freq_sum[-1] + freq[x][y])
-
-            # sort bins and corresponding frequencies
-            pdf["bin"][m] = sorted(bin_unsorted)
-            pdf["freq"][m] = [f for _, f in sorted(zip(pdf["bin"][m], freq_unsorted))]
-            pdf["cdf"][m] = [
-                c / run_freq_sum[-1]
-                for _, c in sorted(zip(pdf["bin"][m], run_freq_sum))
-            ]
-
-        if meteo_id is not "DBTD":
-            # calculate probability distribution function
-            total_obs = sum(pdf["freq"][m])
-            pdf["pdf"][m] = [f / total_obs for f in pdf["freq"][m]]
-
-        else:
-            for h, _ in enumerate(time_day):
-                run_freq_sum = 0
-                for x, _ in enumerate(dry_bulb_day):
-                    pdf["bin"][m][h].append(dry_bulb_day[x])
-                    pdf["freq"][m][h].append(freq_day[h][x])
-                    pdf["pdf"][m][h].append(freq_day[h][x] / sum(freq_day[h]))
-                    run_freq_sum += freq_day[h][x]
-                    pdf["cdf"][m][h].append(run_freq_sum / sum(freq_day[h]))
-
-    return pdf
 
 
 def get_month_data(excel_sheet, wmo, var_type):

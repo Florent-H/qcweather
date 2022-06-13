@@ -8,13 +8,7 @@ from matplotlib.ticker import MultipleLocator
 import math
 
 
-def run_quality_control(file_path):
-    # create pandas dataframe with the meteorological variables from weather file
-    weather = Weather.get_weather(file_path)
-
-    # # run quality assurance on database
-    # weather.database_qc()
-
+def run_quality_control(weather):
     # run quality assurance on the hourly magnitudes of the meteorological variables
     weather.hour_qc()
 
@@ -27,20 +21,37 @@ def run_quality_control(file_path):
     # run quality assurance on the monthly magnitudes of the meteorological variables
     weather.month_qc()
 
+    # get graphs for different time spans and meteorological variables
     weather.get_graph("hourly", "dew_point", month=2)
     weather.get_graph("daily", "dry_bulb", month=5)
     weather.get_graph("monthly", "glob_hor_rad")
 
-    csv_path = Path(f"datafiles/results/{weather.file_path.stem}_results.csv")
+    # write results csv file
+    csv_path = Path(weather.output_dir) / f"{weather.weather_path.stem}_results.csv"
     weather.meteo_vars.to_csv(csv_path)
 
 
-def get_month_rad_extreme_graphs():
-    rad = {"2015": Weather.get_weather(
-        Path("datafiles/epw_files/CAN-QC - Montreal YUL 716270 - ISD 2015.epw")
-    ), "tmy": Weather.get_weather(
-        Path("datafiles/epw_files/CAN_QC_Montreal-McTavish.716120_CWEC2016.epw")
-    ), "extreme": Weather(Path("datafiles/epw_files/CAN-QC - Montreal YUL 716270 - ISD 2015.epw"))}
+def get_month_rad_extreme_graphs(drive_letter, ashrae_path, output_dir):
+    rad = {
+        "2015": Weather.get_weather(
+            Path("datafiles/epw_files/CAN-QC - Montreal YUL 716270 - ISD 2015.epw"),
+            drive_letter,
+            ashrae_path,
+            output_dir,
+        ),
+        "tmy": Weather.get_weather(
+            Path("datafiles/epw_files/CAN_QC_Montreal-McTavish.716120_CWEC2016.epw"),
+            drive_letter,
+            ashrae_path,
+            output_dir,
+        ),
+        "extreme": Weather(
+            Path("datafiles/epw_files/CAN-QC - Montreal YUL 716270 - ISD 2015.epw"),
+            drive_letter,
+            ashrae_path,
+            output_dir,
+        ),
+    }
 
     rad["extreme"].meteo_vars = rad["2015"].meteo_vars.copy(deep=True)
     rad["extreme"].solar_angles = rad["2015"].solar_angles
@@ -200,13 +211,19 @@ def get_month_rad_extreme_graphs():
         )
 
 
-def get_month_rad_graphs():
+def get_month_rad_graphs(drive_letter, ashrae_path, output_dir):
     rad = {
         "2015": Weather.get_weather(
-            Path("datafiles/epw_files/CAN-QC - Montreal YUL 716270 - ISD 2015.epw")
+            Path("datafiles/epw_files/CAN-QC - Montreal YUL 716270 - ISD 2015.epw"),
+            drive_letter,
+            ashrae_path,
+            output_dir,
         ),
         "tmy": Weather.get_weather(
-            Path("datafiles/epw_files/CAN_QC_Montreal-McTavish.716120_CWEC2016.epw")
+            Path("datafiles/epw_files/CAN_QC_Montreal-McTavish.716120_CWEC2016.epw"),
+            drive_letter,
+            ashrae_path,
+            output_dir,
         ),
     }
     csfont = {"fontname": "Times New Roman"}

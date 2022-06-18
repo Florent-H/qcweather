@@ -7,30 +7,6 @@ import numpy as np
 from matplotlib.ticker import MultipleLocator
 import math
 
-
-def run_quality_control(weather):
-    # run quality assurance on the hourly magnitudes of the meteorological variables
-    weather.hour_qc()
-
-    # run quality assurance on the hourly steps of the meteorological variables
-    weather.step_qc()
-
-    # run quality assurance on the hourly steps of the meteorological variables
-    weather.day_qc()
-
-    # run quality assurance on the monthly magnitudes of the meteorological variables
-    weather.month_qc()
-
-    # get graphs for different time spans and meteorological variables
-    weather.get_graph("hourly", "dew_point", month=2)
-    weather.get_graph("daily", "dry_bulb", month=5)
-    weather.get_graph("monthly", "glob_hor_rad")
-
-    # write results csv file
-    csv_path = Path(weather.output_dir) / f"{weather.weather_path.stem}_results.csv"
-    weather.meteo_vars.to_csv(csv_path)
-
-
 def get_month_rad_extreme_graphs(drive_letter, ashrae_path, output_dir):
     rad = {
         "2015": Weather.get_weather(
@@ -77,9 +53,9 @@ def get_month_rad_extreme_graphs(drive_letter, ashrae_path, output_dir):
     csfont = {"fontname": "Arial"}
     fontsz = {"fontsize": 10}
     color = {
-        "glob_hor_rad": {"2015": "orange", "tmy": "red", "extreme": "purple"},
-        "diff_hor_rad": {"2015": "green", "tmy": "blue"},
-        "dir_norm_rad": {"2015": "orange", "tmy": "red"},
+        "glob_hor_rad": {"2015": "orange", "tmy": "coral", "extreme": "mediumorchid"},
+        "diff_hor_rad": {"2015": "green", "tmy": "lightseagreen"},
+        "dir_norm_rad": {"2015": "orange", "tmy": "coral"},
     }
 
     avg_hours = {
@@ -229,9 +205,9 @@ def get_month_rad_graphs(drive_letter, ashrae_path, output_dir):
     csfont = {"fontname": "Times New Roman"}
     fontsz = {"fontsize": 10}
     color = {
-        "glob_hor_rad": {"2015": "orange", "tmy": "red"},
-        "diff_hor_rad": {"2015": "green", "tmy": "blue"},
-        "dir_norm_rad": {"2015": "orange", "tmy": "red"},
+        "glob_hor_rad": {"2015": "orange", "tmy": "coral"},
+        "diff_hor_rad": {"2015": "green", "tmy": "lightseagreen"},
+        "dir_norm_rad": {"2015": "orange", "tmy": "coral"},
     }
 
     # def get_hour_avg(year, met_v, month, past_hours, rad):
@@ -363,43 +339,3 @@ def get_month_rad_graphs(drive_letter, ashrae_path, output_dir):
             bbox_inches="tight",
             pad_inches=0,
         )
-
-
-# # run quality assurance on the difference in magnitude between adjacent data points for each meteorological
-# # variables
-# weather.step_qc()
-#
-# # run quality assurance on the time series for each meteorological variable
-# weather.time_qc()
-
-
-def get_wet_bulb(ep_path):
-    pass
-
-
-def get_dew_point(ep_path):
-    pass
-
-
-def get_rel_hum(ep_path):
-    pass
-
-
-def get_dir_irrad(ep_path):
-    pass
-
-
-def get_diff_irrad(ep_path):
-    pass
-
-
-def get_glob_irrad(ep_path):
-    pass
-
-
-def get_wind_speed(ep_path):
-    pass
-
-
-def get_wind_dir(ep_path):
-    pass

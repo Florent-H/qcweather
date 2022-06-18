@@ -1223,9 +1223,13 @@ class Weather(object):
                 lead_digit = float(digits.split('e-')[0])
                 exp = int(digits.split('e-')[1])
 
-                if lead_digit >= 3.5:
+                if lead_digit >= 6.5:
+                    lead_digit = 8
+                if 6.5 > lead_digit >= 4.5:
                     lead_digit = 5
-                elif 3.5 > lead_digit >= 1.5:
+                elif 4.5 > lead_digit >= 3:
+                    lead_digit = 4
+                elif 3 > lead_digit >= 1.5:
                     lead_digit = 2
                 else:
                     lead_digit = 1
@@ -1236,11 +1240,20 @@ class Weather(object):
                 loop = True
                 exp = 0
                 while loop:
-                    if 10 * 10 ** exp > div >= 3.5 * 10 ** exp:
+
+                    if 10 * 10 ** exp > div >= 6.5 * 10 ** exp:
+                        div = int(8 * 10 ** exp)
+                        loop = False
+
+                    elif 6.5 * 10 ** exp > div >= 4.5 * 10 ** exp:
                         div = int(5 * 10 ** exp)
                         loop = False
 
-                    elif 3.5 * 10 ** exp > div >= 1.5 * 10 ** exp:
+                    elif 4.5 * 10 ** exp > div >= 3 * 10 ** exp:
+                        div = int(4 * 10 ** exp)
+                        loop = False
+
+                    elif 3 * 10 ** exp > div >= 1.5 * 10 ** exp:
                         div = int(2 * 10 ** exp)
                         loop = False
 
@@ -1465,8 +1478,8 @@ class Weather(object):
                     x_max = max(max(perc_99th_list), max(daily_profile))
                     x_range = x_max - x_min
                     x_div = get_div(x_range, 8)
-                    x_low = round_to_multiple(x_min - x_div, x_div, "down")
-                    x_high = round_to_multiple(x_max + x_div, x_div, "up")
+                    x_low = round_to_multiple(x_min - x_div, x_div, "nearest")
+                    x_high = round_to_multiple(x_max + x_div, x_div, "nearest")
 
                     y_min = 0
                     y_max = max((max(pdf) for pdf in pdf_list))
@@ -1503,8 +1516,8 @@ class Weather(object):
                                 tic.label1.set_visible(False)
                                 tic.label2.set_visible(False)
 
-                        ax1.set_ylim([y_low, y_high])
                         ax1.set_xlim([x_low, x_high])
+                        ax1.set_ylim([y_low, y_high])
 
                         ax2.set_ylim([hour, hour + 1])
                         ax2.set_yticklabels(

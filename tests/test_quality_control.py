@@ -24,11 +24,11 @@ def drive_letter():
 
 @pytest.fixture()
 def ashrae_path():
-    yield "datafiles\\ashrae\\2017DesignConditions_s.xlsx"
+    yield "datafiles\\ashrae\\2017DesignConditions_short.xlsx"
 
 @pytest.fixture()
 def output_dir():
-    yield "datafiles"
+    yield "datafiles\\figures"
 
 @pytest.fixture()
 def config(output_dir):
@@ -66,5 +66,5 @@ class TestsQualityControl:
     def test_get_graph(self, config, capsys, epw_path):
         with capsys.disabled():
             weather = Weather.get_weather(epw_path, drive_letter, ashrae_path, output_dir)
-            weather.get_graph("hourly", "dew_point")
+            weather.get_graph("hourly")
 

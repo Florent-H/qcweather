@@ -10,6 +10,8 @@ Use the package manager [pip](https://pip.pypa.io/en/stable/) to install qcweath
 pip install qcweather
 ```
 
+NOTE: qcweather is not published yet, so it is not possible to install it via pip. The above is a placeholder.
+
 ## Usage
 
 First import the ```Weather``` class from ```qcweather```.

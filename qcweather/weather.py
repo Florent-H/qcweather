@@ -29,10 +29,12 @@ class Weather(object):
         @type output_dir: basestring, pathlib Path
         @param output_dir: the output folder/directory where intermediate and final results files will be saved
         """
-        self.weather_path = weather_path
+        from pathlib import Path
+
+        self.weather_path = Path(weather_path)
         self.drive_letter = drive_letter
-        self.ashrae_path = ashrae_path
-        self.output_dir = output_dir
+        self.ashrae_path = Path(ashrae_path)
+        self.output_dir = Path(output_dir)
         self.wmo = None  # World Meteorological Organization (WMO) weather station (type: int)
         self.folder = None  # folder for the raw cumulative distribution function (CDF) tables (type: pathlib Path)
         self.location = None  # tuple of (latitude, longitude) for weather station in radians (type: tuple of floats)
@@ -43,39 +45,6 @@ class Weather(object):
         # "zenith", "day") (type: dictionary)
         self.historical = None  # monthly probability distribution functions as well as monthly averages and standard
         # deviations for some meteorological variables (type: dictionary)
-
-    @classmethod
-    def get_weather(cls, weather_path, drive_letter, ashrae_path, output_dir):
-        """
-        @type weather_path: basestring, pathlib Path
-        @param weather_path: the file path (either Windows or Mac/Linux) for the .epw weather file
-        @type drive_letter: basestring
-        @param drive_letter: the drive letter (without the colon) where the ASHRAE Weather Viewer (2017) iso file is
-        mounted
-        @type ashrae_path: basestring, pathlib Path
-        @param ashrae_path: the file path (either Windows or Mac/Linux) for the ASHRAE Design Conditions (2017)
-        Excel file
-        @type output_dir: basestring, pathlib Path
-        @param output_dir: the output folder/directory where intermediate and final results files will be saved
-        @return: Weather() object which has meteorological parameters (longitude, latitude, wmo station), meteorological
-        variables (dry bulb temperature, solar irradiation), solar angles (zenith, declination), and historical local
-        weather data (probability distribution functions and monthly averages + standard deviations for the
-        meteorological variables
-        """
-        # instantiate Weather object
-        weather = cls(Path(weather_path), drive_letter, Path(ashrae_path), Path(output_dir))
-
-        # get meteorological parameters (such as longitude and latitude of weather station, dry bulb temperature,
-        # and wind speed)
-        weather.get_meteo_params()
-
-        # get solar angles
-        weather.get_solar_angles()
-
-        # gather historical local weather data
-        weather.get_historical()
-
-        return weather
 
     def get_meteo_params(self):
         """
@@ -1205,65 +1174,131 @@ class Weather(object):
 
             return xlabel
 
-        def round_to_multiple(number, multiple, direction='nearest'):
-            if direction == 'nearest':
-                return multiple * round(number / multiple)
-            elif direction == 'up':
-                return multiple * math.ceil(number / multiple)
-            elif direction == 'down':
-                return multiple * math.floor(number / multiple)
+        def get_low_high_div(min_v, max_v, num_div, fixed_low=False, fixed_high=False):
+
+            # cast integer into floats
+            if isinstance(min_v, int):
+                min_v = float(min_v)
+
+            if isinstance(max_v, int):
+                max_v = float(max_v)
+
+            div = (max_v - min_v) / (num_div - 2)
+            digits = "%e" % div
+
+            lead_digit = float(digits.split("e")[0])
+            exp = int(digits.split("e")[1])
+
+            if lead_digit >= 6.5:
+                lead_digit = 8
+            elif 6.5 > lead_digit >= 4.5:
+                lead_digit = 5
+            elif 4.5 > lead_digit >= 3:
+                lead_digit = 4
+            elif 3 > lead_digit >= 1.5:
+                lead_digit = 2
             else:
-                return multiple * round(number / multiple)
+                lead_digit = 1
 
-        def get_div(var_range, num_div):
-            div = var_range / num_div
+            # try moving up and then down the list of possible leading digits
+            dig_list = [1, 2, 4, 5, 8]
 
-            if div < 1:
-                digits = '%e' % div
-                lead_digit = float(digits.split('e-')[0])
-                exp = int(digits.split('e-')[1])
+            i_d = dig_list.index(lead_digit)
 
-                if lead_digit >= 6.5:
-                    lead_digit = 8
-                if 6.5 > lead_digit >= 4.5:
-                    lead_digit = 5
-                elif 4.5 > lead_digit >= 3:
-                    lead_digit = 4
-                elif 3 > lead_digit >= 1.5:
-                    lead_digit = 2
-                else:
-                    lead_digit = 1
+            # changes = [1, -1, 2, -2]
+            changes = [-3, -2, -1, 0, 1, 2, 3]
 
-                div = float(f"{lead_digit}e-{exp}")
+            low_list = []
+            high_list = []
+            div_list = []
 
-            else:
-                loop = True
-                exp = 0
-                while loop:
+            for chg_1 in changes:
+                for chg_2 in changes:
+                    i_1 = (i_d + chg_1) % len(dig_list)
+                    if i_d + chg_1 > len(dig_list) - 1:
+                        e_1 = exp + 1
+                    elif i_d + chg_1 < 0:
+                        e_1 = exp - 1
+                    else:
+                        e_1 = exp
 
-                    if 10 * 10 ** exp > div >= 6.5 * 10 ** exp:
-                        div = int(8 * 10 ** exp)
-                        loop = False
+                    d_1 = float(f"{dig_list[i_1]}e{e_1}")
 
-                    elif 6.5 * 10 ** exp > div >= 4.5 * 10 ** exp:
-                        div = int(5 * 10 ** exp)
-                        loop = False
+                    i_2 = (i_d + chg_2) % len(dig_list)
+                    if i_d + chg_2 > len(dig_list) - 1:
+                        e_2 = exp + 1
+                    elif i_d + chg_2 < 0:
+                        e_2 = exp - 1
+                    else:
+                        e_2 = exp
 
-                    elif 4.5 * 10 ** exp > div >= 3 * 10 ** exp:
-                        div = int(4 * 10 ** exp)
-                        loop = False
+                    d_2 = float(f"{dig_list[i_2]}e{e_2}")
 
-                    elif 3 * 10 ** exp > div >= 1.5 * 10 ** exp:
-                        div = int(2 * 10 ** exp)
-                        loop = False
+                    if d_1 == d_2:
+                        low_try = [d_1]
+                        high_try = [d_1]
+                        ticks_try = [d_1]
 
-                    elif 1.5 * 10 ** exp > div >= 1 * 10 ** exp:
-                        div = int(1 * 10 ** exp)
-                        loop = False
+                    else:
+                        low_try = [d_2, d_2, d_2, d_2, d_1, d_1, d_1, d_1]
+                        high_try = [d_2, d_2, d_1, d_1, d_2, d_2, d_1, d_1]
+                        ticks_try = [d_2, d_1, d_2, d_1, d_2, d_1, d_2, d_1]
 
-                    exp += 1
+                    for k in range(len(low_try)):
+                        digs_low = "%e" % low_try[k]
+                        e_low = int(digs_low.split("e")[1])
 
-            return div
+                        if fixed_low:
+                            low = min_v
+                        else:
+                            low = low_try[k] * math.floor(min_v / low_try[k])
+                            if low == min_v:
+                                low = min_v - low_try[k]
+                            low = round(low, -min(0, e_low))
+
+                        digs_high = "%e" % high_try[k]
+                        e_high = int(digs_high.split("e")[1])
+
+                        if fixed_high:
+                            high = max_v
+                        else:
+                            high = high_try[k] * math.ceil(max_v / high_try[k])
+                            if high == max_v:
+                                high = max_v + high_try[k]
+                            high = round(high, -min(0, e_high))
+
+                        ticks = round((high - low) / ticks_try[k] + 1, -min(0, e_low, e_high))
+                        if ticks == num_div:
+                            low_list.append(low)
+                            high_list.append(high)
+                            div_list.append(ticks_try[k])
+
+            # now select the triplet (low, high, div) where the division has the least number of decimal places
+            # if tied, choose the first one in the list
+            dcm_places = np.array(
+                [
+                    sum(
+                        [
+                            0 if f.is_integer() else str(f)[::-1].find(".")
+                            for f in [low_list[i], high_list[i], div_list[i]]
+                        ]
+                    )
+                    for i in range(len(low_list))
+                ]
+            )
+            min_idx = np.where(dcm_places == dcm_places.min())
+            low_list_min = np.array(low_list)[min_idx]
+            high_list_min = np.array(high_list)[min_idx]
+            div_list_min = np.array(div_list)[min_idx]
+
+            # finally select the smallest range
+            spread = high_list_min - low_list_min
+            final_idx = np.argmin(spread)
+            final_low = low_list_min[final_idx]
+            final_high = high_list_min[final_idx]
+            final_div = div_list_min[final_idx]
+
+            return final_low, final_high, final_div
 
         # create graphs
         if check == "hourly":
@@ -1343,11 +1378,8 @@ class Weather(object):
 
                     x_min = min(min(daily_profile), perc_1st)
                     x_max = max(max(daily_profile), perc_99th)
-                    x_range = x_max - x_min
-                    # determine divisions for x axis based on range of meteorological variable
-                    x_div = get_div(x_range, 8)
-                    x_low = round_to_multiple(x_min, x_div, "down")
-                    x_high = round_to_multiple(x_max, x_div, "up")
+                    # determine low, high, and divisions for x axis based on range of meteorological variable
+                    x_low, x_high, x_div = get_low_high_div(x_min, x_max, 10)
                     if x_div >= 1:
                         ax1.set_xticks(np.arange(x_low, x_high + x_div, x_div).astype(int))
                         ax1.set_xlim([int(x_low), int(x_high)])
@@ -1357,11 +1389,9 @@ class Weather(object):
 
                     y_min = 0
                     y_max = max(pdf)
-                    y_range = y_max - y_min
-                    # determine divisions for y axis based on range of historical bins of meteorological variable
-                    y_div = get_div(y_range, 8)
-                    y_low = round_to_multiple(y_min, y_div, "down")
-                    y_high = round_to_multiple(y_max, y_div, "up")
+                    # determine low, high ,and divisions for y axis based on range of historical bins of meteorological
+                    # variable
+                    y_low, y_high, y_div = get_low_high_div(y_min, y_max, 8, fixed_low=True)
                     ax1.set_yticks(np.arange(y_low, y_high + y_div, y_div))
                     ax1.set_ylim([y_low, y_high])
                     ax2.set_yticks(np.arange(0, 27, 3).astype(int))
@@ -1476,17 +1506,11 @@ class Weather(object):
                     # determine maximum and minimum limits along with divisions for y and x axes
                     x_min = min(min(perc_1st_list), min(daily_profile))
                     x_max = max(max(perc_99th_list), max(daily_profile))
-                    x_range = x_max - x_min
-                    x_div = get_div(x_range, 8)
-                    x_low = round_to_multiple(x_min - x_div, x_div, "nearest")
-                    x_high = round_to_multiple(x_max + x_div, x_div, "nearest")
+                    x_low, x_high, x_div = get_low_high_div(x_min, x_max, 10)
 
                     y_min = 0
                     y_max = max((max(pdf) for pdf in pdf_list))
-                    y_range = y_max - y_min
-                    y_div = get_div(y_range, 1)
-                    y_low = 0
-                    y_high = round_to_multiple(y_max, y_div, "up")
+                    y_low, y_high, y_div = get_low_high_div(y_min, y_max, 8, fixed_low=True)
 
                     # make a subplot of the histogram for each hour of the month
                     for hour in range(24):
@@ -1631,17 +1655,16 @@ class Weather(object):
                         ax1.barh(0, month_average, align="center", color="lightseagreen")
                         ax2.plot(x, y, color="gray")
 
+                        x_min = 0
                         x_max = max(x)
-                        x_range = x_max
-                        x_div = get_div(x_range, 8)
-                        x_high = round_to_multiple(x_max, x_div, "up")
+                        x_low, x_high, x_div = get_low_high_div(x_min, x_max, 10, fixed_low=True)
 
                         if x_div >= 1:
-                            ax1.set_xticks(np.arange(0, x_high + x_div, x_div).astype(int))
-                            ax1.set_xlim([0, int(x_high)])
+                            ax1.set_xticks(np.arange(x_low, x_high + x_div, x_div).astype(int))
+                            ax1.set_xlim([int(x_low), int(x_high)])
                         else:
-                            ax1.set_xticks(np.arange(0, x_high + x_div, x_div))
-                            ax1.set_xlim([0, x_high])
+                            ax1.set_xticks(np.arange(x_low, x_high + x_div, x_div))
+                            ax1.set_xlim([x_low, x_high])
 
                         ml = MultipleLocator(0.5)
                         ax1.xaxis.set_minor_locator(ml)
@@ -1705,6 +1728,41 @@ class Weather(object):
                     )
 
             print("done making monthly value graphs")
+
+
+def get_weather(weather_path, drive_letter, ashrae_path, output_dir):
+    """
+    @type weather_path: basestring, pathlib Path
+    @param weather_path: the file path (either Windows or Mac/Linux) for the .epw weather file
+    @type drive_letter: basestring
+    @param drive_letter: the drive letter (without the colon) where the ASHRAE Weather Viewer (2017) iso file is
+    mounted
+    @type ashrae_path: basestring, pathlib Path
+    @param ashrae_path: the file path (either Windows or Mac/Linux) for the ASHRAE Design Conditions (2017)
+    Excel file
+    @type output_dir: basestring, pathlib Path
+    @param output_dir: the output folder/directory where intermediate and final results files will be saved
+    @return: Weather() object which has meteorological parameters (longitude, latitude, wmo station, ...), meteorological
+    variables (dry bulb temperature, solar irradiation, ...), solar angles (zenith, declination), and historical local
+    weather data (probability distribution functions and monthly averages + standard deviations for the
+    meteorological variables
+    """
+    from qcweather import Weather
+
+    # instantiate Weather object
+    weather = Weather(Path(weather_path), drive_letter, Path(ashrae_path), Path(output_dir))
+
+    # get meteorological parameters (such as longitude and latitude of weather station, dry bulb temperature,
+    # and wind speed)
+    weather.get_meteo_params()
+
+    # get solar angles
+    weather.get_solar_angles()
+
+    # gather historical local weather data
+    weather.get_historical()
+
+    return weather
 
 def get_month_data(excel_sheet, wmo, var_type):
 

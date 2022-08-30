@@ -12,13 +12,13 @@ pip install qcweather
 
 ## Usage
 
-First import the ```Weather``` class from ```qcweather```.
+First import the function ```get_weather``` from ```qcweather```.
 
 ```python
-from qcweather import Weather
+from qcweather import get_weather
 ```
 
-Then create an object from the ```Weather``` class, which requires the following arguments:
+Then create an object from the ```Weather``` class using ```get_weather```, which requires the following arguments:
 
 1. The path for the .epw weather file; 
 2. The drive letter where ASHRAE's Weather Data Viewer (2017) iso file is mounted (not provided);
@@ -31,7 +31,7 @@ drive_letter = "E"
 ashrae_path = "datafiles\\ashrae\\2017DesignConditions_s.xlsx"
 output_dir = "datafiles\\results"
 
-weather = Weather.get_weather(weather_path, drive_letter, ashrae_path, output_dir)
+weather = get_weather(weather_path, drive_letter, ashrae_path, output_dir)
 ```
 
 Finally, run the quality control procedures.
